@@ -1226,6 +1226,56 @@ extension CostUsageScannerTests {
     }
 
     @Test
+    func codexDailyReportRecoversSparkFromMeteredFeatureMetadata() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 25)
+        let iso0 = env.isoString(for: day)
+
+        let tokenCountWithoutModel: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso0,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 80,
+                        "cached_input_tokens": 10,
+                        "output_tokens": 8,
+                    ],
+                ],
+                "rate_limits": [
+                    "metered_feature": "codex_bengalfox",
+                ],
+            ],
+        ]
+
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "session-spark-metered-feature.jsonl",
+            contents: env.jsonl([tokenCountWithoutModel]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let entry = try #require(report.data.first)
+        #expect(entry.modelsUsed == ["gpt-5.3-codex-spark"])
+        #expect(entry.modelBreakdowns?.contains {
+            $0.modelName == "gpt-5.3-codex-spark" && $0.costUSD == nil && $0.totalTokens == 88
+        } == true)
+    }
+
+    @Test
     func codexDailyReportKeepsSparkBreakdownDistinct() throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }

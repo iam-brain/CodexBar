@@ -456,10 +456,15 @@ enum CostUsageScanner {
             return "gpt-5.3-codex-spark"
         }
 
-        if let meteredFeature = rateLimits?["metered_feature"] as? String,
-           meteredFeature.localizedCaseInsensitiveContains("spark")
-        {
-            return "gpt-5.3-codex-spark"
+        if let meteredFeature = rateLimits?["metered_feature"] as? String {
+            let normalizedFeature = meteredFeature
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if normalizedFeature == "codex_bengalfox"
+                || meteredFeature.localizedCaseInsensitiveContains("spark")
+            {
+                return "gpt-5.3-codex-spark"
+            }
         }
 
         return nil
