@@ -29,7 +29,7 @@ private struct OverviewMenuCardRowView: View {
                 UsageMenuCardUsageSectionView(
                     model: self.model,
                     showBottomDivider: false,
-                    bottomPadding: 6,
+                    bottomPadding: UsageMenuCardView.Layout.sectionVerticalPadding,
                     width: self.width)
             }
         }
@@ -849,10 +849,8 @@ extension StatusItemController {
         let hasCredits = model.creditsText != nil
         let hasExtraUsage = model.providerCost != nil
         let hasCost = model.tokenUsage != nil
-        let bottomPadding = CGFloat(hasCredits ? 4 : 6)
-        let sectionSpacing = CGFloat(6)
-        let usageBottomPadding = bottomPadding
-        let creditsBottomPadding = bottomPadding
+        let sectionTopPadding = UsageMenuCardView.Layout.sectionVerticalPadding
+        let sectionBottomPadding = UsageMenuCardView.Layout.sectionVerticalPadding
 
         let headerView = UsageMenuCardHeaderSectionView(
             model: model,
@@ -866,8 +864,8 @@ extension StatusItemController {
                 group: primaryMetricGroup ?? .init(id: "primary", title: nil, metrics: []),
                 usageNotes: model.usageNotes,
                 placeholder: model.placeholder,
-                topPadding: 10,
-                bottomPadding: usageBottomPadding,
+                topPadding: UsageMenuCardView.Layout.firstSectionTopPadding,
+                bottomPadding: sectionBottomPadding,
                 width: width,
                 progressColor: model.progressColor)
             let usageSubmenu = self.makeUsageSubmenu(
@@ -890,8 +888,8 @@ extension StatusItemController {
                 group: sparkMetricGroup,
                 usageNotes: [],
                 placeholder: nil,
-                topPadding: sectionSpacing,
-                bottomPadding: bottomPadding,
+                topPadding: sectionTopPadding,
+                bottomPadding: sectionBottomPadding,
                 width: width,
                 progressColor: model.progressColor)
             menu.addItem(self.makeMenuCardItem(
@@ -908,8 +906,8 @@ extension StatusItemController {
             let creditsView = UsageMenuCardCreditsSectionView(
                 model: model,
                 showBottomDivider: false,
-                topPadding: sectionSpacing,
-                bottomPadding: creditsBottomPadding,
+                topPadding: sectionTopPadding,
+                bottomPadding: sectionBottomPadding,
                 width: width)
             let creditsSubmenu = webItems.hasCreditsHistory ? self.makeCreditsHistorySubmenu() : nil
             menu.addItem(self.makeMenuCardItem(
@@ -927,8 +925,8 @@ extension StatusItemController {
         if hasExtraUsage {
             let extraUsageView = UsageMenuCardExtraUsageSectionView(
                 model: model,
-                topPadding: sectionSpacing,
-                bottomPadding: bottomPadding,
+                topPadding: sectionTopPadding,
+                bottomPadding: sectionBottomPadding,
                 width: width)
             menu.addItem(self.makeMenuCardItem(
                 extraUsageView,
@@ -941,8 +939,8 @@ extension StatusItemController {
         if hasCost {
             let costView = UsageMenuCardCostSectionView(
                 model: model,
-                topPadding: sectionSpacing,
-                bottomPadding: bottomPadding,
+                topPadding: sectionTopPadding,
+                bottomPadding: sectionBottomPadding,
                 width: width)
             let costSubmenu = webItems.hasCostHistory ? self.makeCostHistorySubmenu(provider: provider) : nil
             menu.addItem(self.makeMenuCardItem(

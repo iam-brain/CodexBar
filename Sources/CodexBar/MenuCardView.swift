@@ -12,6 +12,14 @@ extension View {
 
 /// SwiftUI card used inside the NSMenu to mirror Apple's rich menu panels.
 struct UsageMenuCardView: View {
+    enum Layout {
+        static let horizontalPadding: CGFloat = 16
+        static let cardEdgeVerticalPadding: CGFloat = 2
+        static let sectionSpacing: CGFloat = 12
+        static let firstSectionTopPadding: CGFloat = 10
+        static let sectionVerticalPadding: CGFloat = 8
+    }
+
     struct Model {
         enum PercentStyle: String, Sendable {
             case left
@@ -156,7 +164,7 @@ struct UsageMenuCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Self.Layout.sectionSpacing / 2) {
             UsageMenuCardHeaderView(model: self.model)
 
             if self.hasDetails {
@@ -178,14 +186,14 @@ struct UsageMenuCardView: View {
                 let hasCost = self.model.tokenUsage != nil || hasProviderCost
                 let metricGroups = Self.metricGroups(provider: self.model.provider, metrics: self.model.metrics)
 
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: Self.Layout.sectionSpacing) {
                     if hasUsage {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: Self.Layout.sectionSpacing) {
                             ForEach(Array(metricGroups.enumerated()), id: \.element.id) { index, group in
                                 if index > 0 {
                                     Divider()
                                 }
-                                VStack(alignment: .leading, spacing: 12) {
+                                VStack(alignment: .leading, spacing: Self.Layout.sectionSpacing) {
                                     if let title = group.title {
                                         Text(title)
                                             .menuCardSectionTitleStyle()
@@ -229,10 +237,9 @@ struct UsageMenuCardView: View {
                         Divider()
                     }
                     if let tokenUsage = self.model.tokenUsage {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: Self.Layout.sectionSpacing / 2) {
                             Text("Cost")
-                                .font(.body)
-                                .fontWeight(.medium)
+                                .menuCardSectionTitleStyle()
                             Text(tokenUsage.sessionLine)
                                 .font(.footnote)
                             Text(tokenUsage.monthLine)
@@ -257,12 +264,12 @@ struct UsageMenuCardView: View {
                         }
                     }
                 }
-                .padding(.bottom, self.model.creditsText == nil ? 6 : 0)
+                .padding(.bottom, self.model.creditsText == nil ? Self.Layout.sectionVerticalPadding : 0)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 2)
-        .padding(.bottom, 2)
+        .padding(.horizontal, Self.Layout.horizontalPadding)
+        .padding(.top, Self.Layout.cardEdgeVerticalPadding)
+        .padding(.bottom, Self.Layout.cardEdgeVerticalPadding)
         .frame(width: self.width, alignment: .leading)
     }
 
@@ -481,16 +488,16 @@ struct UsageMenuCardHeaderSectionView: View {
     let width: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: UsageMenuCardView.Layout.sectionSpacing / 2) {
             UsageMenuCardHeaderView(model: self.model)
 
             if self.showDivider {
                 Divider()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 2)
-        .padding(.bottom, self.model.subtitleStyle == .error ? 2 : 0)
+        .padding(.horizontal, UsageMenuCardView.Layout.horizontalPadding)
+        .padding(.top, UsageMenuCardView.Layout.cardEdgeVerticalPadding)
+        .padding(.bottom, self.model.subtitleStyle == .error ? UsageMenuCardView.Layout.cardEdgeVerticalPadding : 0)
         .frame(width: self.width, alignment: .leading)
     }
 }
@@ -504,7 +511,7 @@ struct UsageMenuCardUsageSectionView: View {
 
     var body: some View {
         let metricGroups = UsageMenuCardView.metricGroups(provider: self.model.provider, metrics: self.model.metrics)
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: UsageMenuCardView.Layout.sectionSpacing) {
             if self.model.metrics.isEmpty {
                 if !self.model.usageNotes.isEmpty {
                     UsageNotesContent(notes: self.model.usageNotes)
@@ -518,7 +525,7 @@ struct UsageMenuCardUsageSectionView: View {
                     if index > 0 {
                         Divider()
                     }
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: UsageMenuCardView.Layout.sectionSpacing) {
                         if let title = group.title {
                             Text(title)
                                 .menuCardSectionTitleStyle()
@@ -542,8 +549,8 @@ struct UsageMenuCardUsageSectionView: View {
                 Divider()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
+        .padding(.horizontal, UsageMenuCardView.Layout.horizontalPadding)
+        .padding(.top, UsageMenuCardView.Layout.firstSectionTopPadding)
         .padding(.bottom, self.bottomPadding)
         .frame(width: self.width, alignment: .leading)
     }
@@ -561,7 +568,7 @@ struct UsageMenuCardMetricGroupSectionView: View {
     @Environment(\.menuItemHighlighted) private var isHighlighted
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: UsageMenuCardView.Layout.sectionSpacing) {
             if let title = self.group.title {
                 Text(title)
                     .menuCardSectionTitleStyle()
@@ -589,7 +596,7 @@ struct UsageMenuCardMetricGroupSectionView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, UsageMenuCardView.Layout.horizontalPadding)
         .padding(.top, self.topPadding)
         .padding(.bottom, self.bottomPadding)
         .frame(width: self.width, alignment: .leading)
@@ -605,7 +612,7 @@ struct UsageMenuCardCreditsSectionView: View {
 
     var body: some View {
         if let credits = self.model.creditsText {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: UsageMenuCardView.Layout.sectionSpacing / 2) {
                 CreditsBarContent(
                     creditsText: credits,
                     creditsRemaining: self.model.creditsRemaining,
@@ -616,7 +623,7 @@ struct UsageMenuCardCreditsSectionView: View {
                     Divider()
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, UsageMenuCardView.Layout.horizontalPadding)
             .padding(.top, self.topPadding)
             .padding(.bottom, self.bottomPadding)
             .frame(width: self.width, alignment: .leading)
@@ -646,7 +653,7 @@ private struct CreditsBarContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: UsageMenuCardView.Layout.sectionSpacing / 2) {
             Text("Credits")
                 .menuCardSectionTitleStyle()
             if let percentLeft {
@@ -691,9 +698,9 @@ struct UsageMenuCardCostSectionView: View {
         let hasTokenCost = self.model.tokenUsage != nil
         return Group {
             if hasTokenCost {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: UsageMenuCardView.Layout.sectionSpacing - 2) {
                     if let tokenUsage = self.model.tokenUsage {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: UsageMenuCardView.Layout.sectionSpacing / 2) {
                             Text("Cost")
                                 .menuCardSectionTitleStyle()
                             Text(tokenUsage.sessionLine)
@@ -720,7 +727,7 @@ struct UsageMenuCardCostSectionView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, UsageMenuCardView.Layout.horizontalPadding)
                 .padding(.top, self.topPadding)
                 .padding(.bottom, self.bottomPadding)
                 .frame(width: self.width, alignment: .leading)
@@ -741,7 +748,7 @@ struct UsageMenuCardExtraUsageSectionView: View {
                 ProviderCostContent(
                     section: providerCost,
                     progressColor: self.model.progressColor)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, UsageMenuCardView.Layout.horizontalPadding)
                     .padding(.top, self.topPadding)
                     .padding(.bottom, self.bottomPadding)
                     .frame(width: self.width, alignment: .leading)
