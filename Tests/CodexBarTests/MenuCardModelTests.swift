@@ -13,7 +13,7 @@ struct MenuCardModelTests {
             providerID: .codex,
             accountEmail: "codex@example.com",
             accountOrganization: nil,
-            loginMethod: "Plus Plan")
+            loginMethod: "Pro")
         let snapshot = UsageSnapshot(
             primary: RateWindow(
                 usedPercent: 22,
@@ -49,7 +49,7 @@ struct MenuCardModelTests {
             dashboardError: nil,
             tokenSnapshot: nil,
             tokenError: nil,
-            account: AccountInfo(email: "codex@example.com", plan: "Plus Plan"),
+            account: AccountInfo(email: "codex@example.com", plan: "Pro"),
             isRefreshing: false,
             lastError: nil,
             usageBarsShowUsed: false,
@@ -838,59 +838,5 @@ struct MenuCardModelTests {
         let primary = try #require(model.metrics.first)
         #expect(primary.resetText == nil)
         #expect(primary.detailText == "10/100 credits")
-    }
-}
-
-extension MenuCardModelTests {
-    @Test
-    func showsSparkMetricWhenCodexTertiaryWindowPresent() throws {
-        let now = Date()
-        let identity = ProviderIdentitySnapshot(
-            providerID: .codex,
-            accountEmail: "codex@example.com",
-            accountOrganization: nil,
-            loginMethod: "Plus Plan")
-        let snapshot = UsageSnapshot(
-            primary: RateWindow(
-                usedPercent: 22,
-                windowMinutes: 300,
-                resetsAt: now.addingTimeInterval(3000),
-                resetDescription: nil),
-            secondary: RateWindow(
-                usedPercent: 40,
-                windowMinutes: 10080,
-                resetsAt: now.addingTimeInterval(6000),
-                resetDescription: nil),
-            tertiary: RateWindow(
-                usedPercent: 17,
-                windowMinutes: 10080,
-                resetsAt: now.addingTimeInterval(7200),
-                resetDescription: nil),
-            updatedAt: now,
-            identity: identity)
-        let metadata = try #require(ProviderDefaults.metadata[.codex])
-
-        let model = UsageMenuCardView.Model.make(.init(
-            provider: .codex,
-            metadata: metadata,
-            snapshot: snapshot,
-            credits: nil,
-            creditsError: nil,
-            dashboard: nil,
-            dashboardError: nil,
-            tokenSnapshot: nil,
-            tokenError: nil,
-            account: AccountInfo(email: "codex@example.com", plan: "Plus Plan"),
-            isRefreshing: false,
-            lastError: nil,
-            usageBarsShowUsed: false,
-            resetTimeDisplayStyle: .countdown,
-            tokenCostUsageEnabled: false,
-            showOptionalCreditsAndExtraUsage: true,
-            hidePersonalInfo: false,
-            now: now))
-
-        #expect(model.metrics.count == 3)
-        #expect(model.metrics.contains { $0.title == "Spark" && $0.percent == 83 })
     }
 }

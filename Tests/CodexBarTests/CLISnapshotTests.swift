@@ -44,6 +44,62 @@ struct CLISnapshotTests {
     }
 
     @Test
+    func rendersSparkAsGroupedSessionAndWeeklyForCodex() {
+        let snap = UsageSnapshot(
+            primary: .init(usedPercent: 12, windowMinutes: 300, resetsAt: nil, resetDescription: "today at 3:00 PM"),
+            secondary: .init(usedPercent: 25, windowMinutes: 10080, resetsAt: nil, resetDescription: "Fri at 9:00 AM"),
+            tertiary: .init(usedPercent: 0, windowMinutes: 300, resetsAt: nil, resetDescription: "today at 5:00 PM"),
+            quaternary: .init(usedPercent: 0, windowMinutes: 10080, resetsAt: nil, resetDescription: "Mon at 9:00 AM"),
+            updatedAt: Date(timeIntervalSince1970: 0),
+            identity: ProviderIdentitySnapshot(
+                providerID: .codex,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: "Pro"))
+
+        let output = CLIRenderer.renderText(
+            provider: .codex,
+            snapshot: snap,
+            credits: nil,
+            context: RenderContext(
+                header: "Codex 1.2.3 (codex-cli)",
+                status: nil,
+                useColor: false,
+                resetStyle: .absolute))
+
+        #expect(output.contains("GPT-5.3-Codex-Spark"))
+        #expect(output.contains("Session: 100% left"))
+        #expect(output.contains("Weekly: 100% left"))
+    }
+
+    @Test
+    func hidesSparkForNonProCodexPlans() {
+        let snap = UsageSnapshot(
+            primary: .init(usedPercent: 12, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
+            secondary: .init(usedPercent: 25, windowMinutes: 10080, resetsAt: nil, resetDescription: nil),
+            tertiary: .init(usedPercent: 0, windowMinutes: 300, resetsAt: nil, resetDescription: nil),
+            quaternary: .init(usedPercent: 0, windowMinutes: 10080, resetsAt: nil, resetDescription: nil),
+            updatedAt: Date(timeIntervalSince1970: 0),
+            identity: ProviderIdentitySnapshot(
+                providerID: .codex,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: "Plus"))
+
+        let output = CLIRenderer.renderText(
+            provider: .codex,
+            snapshot: snap,
+            credits: nil,
+            context: RenderContext(
+                header: "Codex 1.2.3 (codex-cli)",
+                status: nil,
+                useColor: false,
+                resetStyle: .absolute))
+
+        #expect(!output.contains("GPT-5.3-Codex-Spark"))
+    }
+
+    @Test
     func rendersTextSnapshotForClaudeWithoutWeekly() {
         let snap = UsageSnapshot(
             primary: .init(usedPercent: 2, windowMinutes: nil, resetsAt: nil, resetDescription: "3pm (Europe/Vienna)"),

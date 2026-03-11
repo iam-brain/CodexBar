@@ -46,6 +46,7 @@ extension UsageStore {
             primary: snapshot.primary,
             secondary: snapshot.secondary,
             tertiary: snapshot.tertiary,
+            quaternary: snapshot.quaternary,
             creditsRemaining: creditsRemaining,
             codeReviewRemainingPercent: codeReviewRemaining,
             tokenUsage: tokenUsage,

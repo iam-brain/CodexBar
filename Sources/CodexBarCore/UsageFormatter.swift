@@ -275,4 +275,11 @@ public enum UsageFormatter {
         }
         return cleaned
     }
+
+    public static func isProPlan(_ text: String?) -> Bool {
+        guard let text else { return false }
+        let cleaned = self.cleanPlanName(text)
+        guard !cleaned.isEmpty else { return false }
+        return cleaned.range(of: #"\bpro\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
 }

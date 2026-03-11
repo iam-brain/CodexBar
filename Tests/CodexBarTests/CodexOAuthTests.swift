@@ -100,7 +100,7 @@ struct CodexOAuthTests {
     }
 
     @Test
-    func mapsSparkWindowFromOAuthAdditionalRateLimits() throws {
+    func mapsSparkSessionAndWeeklyWindowsFromOAuthAdditionalRateLimits() throws {
         let json = """
         {
           "rate_limit": {
@@ -151,9 +151,12 @@ struct CodexOAuthTests {
         let snapshot = try CodexOAuthFetchStrategy._mapUsageForTesting(Data(json.utf8), credentials: creds)
         #expect(snapshot.primary?.usedPercent == 22)
         #expect(snapshot.secondary?.usedPercent == 43)
-        #expect(snapshot.tertiary?.usedPercent == 17)
-        #expect(snapshot.tertiary?.windowMinutes == 10080)
+        #expect(snapshot.tertiary?.usedPercent == 3)
+        #expect(snapshot.tertiary?.windowMinutes == 300)
         #expect(snapshot.tertiary?.resetsAt != nil)
+        #expect(snapshot.quaternary?.usedPercent == 17)
+        #expect(snapshot.quaternary?.windowMinutes == 10080)
+        #expect(snapshot.quaternary?.resetsAt != nil)
     }
 
     @Test
@@ -191,6 +194,7 @@ struct CodexOAuthTests {
         let snapshot = try CodexOAuthFetchStrategy._mapUsageForTesting(Data(json.utf8), credentials: creds)
         #expect(snapshot.primary?.usedPercent == 22)
         #expect(snapshot.tertiary == nil)
+        #expect(snapshot.quaternary == nil)
     }
 
     @Test

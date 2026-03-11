@@ -32,7 +32,12 @@ enum CLIRenderer {
             context: context,
             now: now,
             lines: &lines)
-        self.appendTertiaryLines(snapshot: snapshot, metadata: meta, context: context, now: now, lines: &lines)
+        self.appendAdditionalWindowLines(
+            provider: provider,
+            snapshot: snapshot,
+            context: context,
+            now: now,
+            lines: &lines)
         self.appendCreditsLine(provider: provider, credits: credits, useColor: context.useColor, lines: &lines)
         self.appendIdentityAndNotes(
             provider: provider,
@@ -106,16 +111,42 @@ enum CLIRenderer {
             lines: &lines)
     }
 
-    private static func appendTertiaryLines(
+    private static func appendAdditionalWindowLines(
+        provider: UsageProvider,
         snapshot: UsageSnapshot,
-        metadata: ProviderMetadata,
         context: RenderContext,
         now: Date,
         lines: inout [String])
     {
-        guard metadata.supportsOpus, let opus = snapshot.tertiary else { return }
-        lines.append(self.rateLine(title: metadata.opusLabel ?? "Sonnet", window: opus, useColor: context.useColor))
-        if let reset = self.resetLine(for: opus, style: context.resetStyle, now: now) {
+        let metadata = ProviderDescriptorRegistry.descriptor(for: provider).metadata
+        let showCodexSpark = provider != .codex || UsageFormatter.isProPlan(snapshot.loginMethod(for: .codex))
+
+        if let tertiary = snapshot.tertiary, metadata.supportsOpus, showCodexSpark {
+            if provider == .codex {
+                lines.append("GPT-5.3-Codex-Spark")
+                lines.append(self.rateLine(title: "Session", window: tertiary, useColor: context.useColor))
+            } else {
+                lines.append(self.rateLine(
+                    title: metadata.opusLabel ?? "Sonnet",
+                    window: tertiary,
+                    useColor: context.useColor))
+            }
+            if let reset = self.resetLine(for: tertiary, style: context.resetStyle, now: now) {
+                lines.append(self.subtleLine(reset, useColor: context.useColor))
+            }
+        }
+
+        guard let quaternary = snapshot.quaternary, showCodexSpark else { return }
+        if provider == .codex {
+            if snapshot.tertiary == nil {
+                lines.append("GPT-5.3-Codex-Spark")
+            }
+            lines.append(self.rateLine(title: "Weekly", window: quaternary, useColor: context.useColor))
+        } else {
+            guard let label = metadata.quaternaryLabel else { return }
+            lines.append(self.rateLine(title: label, window: quaternary, useColor: context.useColor))
+        }
+        if let reset = self.resetLine(for: quaternary, style: context.resetStyle, now: now) {
             lines.append(self.subtleLine(reset, useColor: context.useColor))
         }
     }
