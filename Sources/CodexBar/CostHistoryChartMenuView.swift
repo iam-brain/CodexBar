@@ -57,7 +57,7 @@ struct CostHistoryChartMenuView: View {
     }
 
     var body: some View {
-        let model = Self.makeModel(provider: self.provider, daily: self.daily)
+        let model = Self.makeModel(provider: self.provider, daily: self.daily, now: Date())
         VStack(alignment: .leading, spacing: 10) {
             if model.points.isEmpty {
                 Text("No cost history data.")
@@ -169,7 +169,7 @@ struct CostHistoryChartMenuView: View {
         maxValue * 0.05
     }
 
-    private static func makeModel(provider: UsageProvider, daily: [DailyEntry]) -> Model {
+    private static func makeModel(provider: UsageProvider, daily: [DailyEntry], now: Date) -> Model {
         let sorted = daily.sorted { lhs, rhs in lhs.date < rhs.date }
         var entriesByKey: [String: DailyEntry] = [:]
         entriesByKey.reserveCapacity(sorted.count)
@@ -178,7 +178,7 @@ struct CostHistoryChartMenuView: View {
             entriesByKey[entry.date] = entry
         }
 
-        let dayRange = Self.contiguousDayKeys(from: sorted)
+        let dayRange = Self.rollingDayKeys(endingAt: now)
 
         var points: [Point] = []
         points.reserveCapacity(dayRange.count)
@@ -199,19 +199,14 @@ struct CostHistoryChartMenuView: View {
             }
         }
 
-        let minimumVisibleCostUSD: Double = if maxCostUSD > 0 {
-            maxCostUSD * 0.01
-        } else if sorted.contains(where: Self.hasUsage(entry:)) {
-            1
-        } else {
-            0
-        }
+        let minimumVisibleCostUSD = maxCostUSD > 0 ? maxCostUSD * 0.01 : 0
 
         for item in dayRange {
             let entry = entriesByKey[item.key]
             let actualCostUSD = entry.flatMap(\.costUSD).map { max(0, $0) }
             let hasUsage = entry.map { Self.hasUsage(entry: $0) } ?? false
-            let displayCostUSD = if hasUsage {
+            let hasVisibleCost = (actualCostUSD ?? 0) > 0
+            let displayCostUSD = if hasVisibleCost {
                 max(actualCostUSD ?? 0.0, minimumVisibleCostUSD)
             } else {
                 0.0
@@ -222,7 +217,7 @@ struct CostHistoryChartMenuView: View {
                 actualCostUSD: actualCostUSD,
                 totalTokens: entry?.totalTokens,
                 hasUsage: hasUsage,
-                isPlaceholder: entry == nil)
+                isPlaceholder: !hasVisibleCost)
             points.append(point)
             pointsByKey[item.key] = point
             dateKeys.append((item.key, item.date))
@@ -284,23 +279,18 @@ struct CostHistoryChartMenuView: View {
         return comps.date
     }
 
-    private static func contiguousDayKeys(from sorted: [DailyEntry]) -> [(key: String, date: Date)] {
-        guard let firstEntry = sorted.first,
-              let lastEntry = sorted.last,
-              let firstDate = self.dateFromDayKey(firstEntry.date),
-              let lastDate = self.dateFromDayKey(lastEntry.date)
-        else {
-            return []
-        }
-
+    private static func rollingDayKeys(endingAt now: Date) -> [(key: String, date: Date)] {
         var days: [(key: String, date: Date)] = []
-        var current = firstDate
         let calendar = Calendar.current
+        let end = calendar.startOfDay(for: now)
+        let start = calendar.date(byAdding: .day, value: -29, to: end) ?? end
+        var current = start
 
-        while current <= lastDate {
+        while current <= end {
             let comps = calendar.dateComponents([.year, .month, .day], from: current)
             let key = String(format: "%04d-%02d-%02d", comps.year ?? 1970, comps.month ?? 1, comps.day ?? 1)
-            days.append((key, current))
+            let date = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: current) ?? current
+            days.append((key, date))
             guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
             current = next
         }
@@ -415,11 +405,6 @@ struct CostHistoryChartMenuView: View {
             return DetailContent(primary: "Hover a bar for details", models: [])
         }
 
-        guard !point.isPlaceholder else {
-            let dayLabel = date.formatted(.dateTime.month(.abbreviated).day())
-            return DetailContent(primary: "\(dayLabel): No cost data", models: [])
-        }
-
         let dayLabel = date.formatted(.dateTime.month(.abbreviated).day())
         let partial = self.hasUnpricedModels(key: key, model: model) ? " partial" : ""
         let models = self.topModelLines(key: key, model: model)
@@ -472,5 +457,40 @@ struct CostHistoryChartMenuView: View {
                 return DetailModelLine(id: item.name, text: "\(item.name): \(suffix)\(tokensSuffix)")
             }
         return Array(parts)
+    }
+}
+
+extension CostHistoryChartMenuView {
+    enum TestSupport {
+        struct SnapshotPoint: Equatable {
+            let dayKey: String
+            let displayCostUSD: Double
+            let actualCostUSD: Double?
+            let hasUsage: Bool
+            let isPlaceholder: Bool
+        }
+
+        struct Snapshot: Equatable {
+            let points: [SnapshotPoint]
+        }
+
+        @MainActor
+        static func makeSnapshot(
+            provider: UsageProvider = .codex,
+            daily: [DailyEntry],
+            now: Date) -> Snapshot
+        {
+            let model = CostHistoryChartMenuView.makeModel(provider: provider, daily: daily, now: now)
+            let points = model.dateKeys.compactMap { item -> SnapshotPoint? in
+                guard let point = model.pointsByDateKey[item.key] else { return nil }
+                return SnapshotPoint(
+                    dayKey: item.key,
+                    displayCostUSD: point.displayCostUSD,
+                    actualCostUSD: point.actualCostUSD,
+                    hasUsage: point.hasUsage,
+                    isPlaceholder: point.isPlaceholder)
+            }
+            return Snapshot(points: points)
+        }
     }
 }
