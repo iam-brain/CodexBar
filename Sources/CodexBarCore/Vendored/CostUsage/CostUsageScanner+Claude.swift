@@ -528,7 +528,10 @@ extension CostUsageScanner {
                         cacheReadInputTokens: cacheRead,
                         cacheCreationInputTokens: cacheCreate,
                         outputTokens: output)
-                breakdown.append(CostUsageDailyReport.ModelBreakdown(modelName: model, costUSD: cost))
+                breakdown.append(CostUsageDailyReport.ModelBreakdown(
+                    modelName: model,
+                    costUSD: cost,
+                    totalTokens: input + cacheRead + cacheCreate + output))
                 if let cost {
                     dayCost += cost
                     dayCostSeen = true
