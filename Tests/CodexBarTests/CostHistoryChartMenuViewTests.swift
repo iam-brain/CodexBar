@@ -1,58 +1,47 @@
+import CodexBarCore
+import Foundation
 import Testing
 @testable import CodexBar
-@testable import CodexBarCore
 
 @Suite
 struct CostHistoryChartMenuViewTests {
     @Test
     @MainActor
-    func makeModelBackfillsEmptyDaysBetweenEntries() throws {
+    func makeSnapshotBuildsRollingThirtyDayWindowEndingToday() throws {
+        let now = try #require(Self.date(year: 2026, month: 3, day: 12, hour: 9))
         let daily = [
             CostUsageDailyReport.Entry(
-                date: "2025-12-01",
-                inputTokens: 100,
-                outputTokens: 20,
-                totalTokens: 120,
-                costUSD: 0.08,
-                modelsUsed: ["gpt-5.2-codex"],
-                modelBreakdowns: [
-                    .init(modelName: "gpt-5.2-codex", costUSD: 0.08),
-                ]),
-            CostUsageDailyReport.Entry(
-                date: "2025-12-03",
-                inputTokens: 50,
-                outputTokens: 10,
-                totalTokens: 60,
-                costUSD: 0.03,
-                modelsUsed: ["gpt-5.3-codex"],
-                modelBreakdowns: [
-                    .init(modelName: "gpt-5.3-codex", costUSD: 0.03),
-                ]),
+                date: "2026-03-12",
+                inputTokens: 120,
+                outputTokens: 30,
+                totalTokens: 150,
+                costUSD: 0.25,
+                modelsUsed: ["gpt-5.4-codex"],
+                modelBreakdowns: nil),
         ]
 
-        let model = CostHistoryChartMenuView.makeModel(provider: .codex, daily: daily)
+        let snapshot = CostHistoryChartMenuView.TestSupport.makeSnapshot(daily: daily, now: now)
 
-        #expect(model.points.count == 3)
-        let middleDay = try #require(model.pointsByDateKey["2025-12-02"])
-        #expect(middleDay.isPlaceholder == true)
-        #expect(middleDay.chartCostUSD == 0)
-        #expect(middleDay.actualCostUSD == nil)
+        #expect(snapshot.points.count == 30)
+        #expect(snapshot.points.first?.dayKey == "2026-02-11")
+        #expect(snapshot.points.last?.dayKey == "2026-03-12")
+
+        let today = try #require(snapshot.points.last)
+        #expect(today.isPlaceholder == false)
+        #expect(today.actualCostUSD == 0.25)
+
+        let earlierDays = snapshot.points.dropLast()
+        #expect(earlierDays.contains(where: { !$0.isPlaceholder }) == false)
+        #expect(earlierDays.allSatisfy { $0.displayCostUSD == 0 })
     }
 
     @Test
     @MainActor
-    func makeModelOnlyBackfillsMissingDays() {
+    func makeSnapshotTreatsNilAndZeroCostDaysAsPlaceholders() throws {
+        let now = try #require(Self.date(year: 2026, month: 3, day: 12, hour: 9))
         let daily = [
             CostUsageDailyReport.Entry(
-                date: "2025-12-01",
-                inputTokens: 100,
-                outputTokens: 20,
-                totalTokens: 120,
-                costUSD: 0.08,
-                modelsUsed: ["gpt-5.2-codex"],
-                modelBreakdowns: nil),
-            CostUsageDailyReport.Entry(
-                date: "2025-12-02",
+                date: "2026-03-10",
                 inputTokens: 100,
                 outputTokens: 20,
                 totalTokens: 120,
@@ -60,55 +49,54 @@ struct CostHistoryChartMenuViewTests {
                 modelsUsed: ["unknown"],
                 modelBreakdowns: nil),
             CostUsageDailyReport.Entry(
-                date: "2025-12-03",
-                inputTokens: 50,
+                date: "2026-03-11",
+                inputTokens: 90,
                 outputTokens: 10,
-                totalTokens: 60,
-                costUSD: 0.03,
-                modelsUsed: ["gpt-5.3-codex"],
+                totalTokens: 100,
+                costUSD: 0,
+                modelsUsed: ["claude-sonnet-4-5"],
+                modelBreakdowns: nil),
+            CostUsageDailyReport.Entry(
+                date: "2026-03-12",
+                inputTokens: 70,
+                outputTokens: 10,
+                totalTokens: 80,
+                costUSD: 0.08,
+                modelsUsed: ["claude-sonnet-4-5"],
                 modelBreakdowns: nil),
         ]
 
-        let model = CostHistoryChartMenuView.makeModel(provider: .codex, daily: daily)
+        let snapshot = CostHistoryChartMenuView.TestSupport.makeSnapshot(
+            provider: .claude,
+            daily: daily,
+            now: now)
 
-        #expect(model.points.count == 2)
-        #expect(model.pointsByDateKey["2025-12-02"] == nil)
+        let nilCostDay = try #require(snapshot.points.first { $0.dayKey == "2026-03-10" })
+        #expect(nilCostDay.hasUsage == true)
+        #expect(nilCostDay.isPlaceholder == true)
+        #expect(nilCostDay.displayCostUSD == 0)
+        #expect(nilCostDay.actualCostUSD == nil)
+
+        let zeroCostDay = try #require(snapshot.points.first { $0.dayKey == "2026-03-11" })
+        #expect(zeroCostDay.hasUsage == true)
+        #expect(zeroCostDay.isPlaceholder == true)
+        #expect(zeroCostDay.displayCostUSD == 0)
+        #expect(zeroCostDay.actualCostUSD == 0)
+
+        let pricedDay = try #require(snapshot.points.first { $0.dayKey == "2026-03-12" })
+        #expect(pricedDay.isPlaceholder == false)
+        #expect(pricedDay.displayCostUSD > 0)
+        #expect(pricedDay.actualCostUSD == 0.08)
     }
 
-    @Test
-    @MainActor
-    func makeModelIgnoresMalformedBoundaryDatesWhenBackfilling() throws {
-        let daily = [
-            CostUsageDailyReport.Entry(
-                date: "not-a-date",
-                inputTokens: 80,
-                outputTokens: 10,
-                totalTokens: 90,
-                costUSD: 0.05,
-                modelsUsed: ["gpt-5.2-codex"],
-                modelBreakdowns: nil),
-            CostUsageDailyReport.Entry(
-                date: "2025-12-03",
-                inputTokens: 100,
-                outputTokens: 20,
-                totalTokens: 120,
-                costUSD: 0.08,
-                modelsUsed: ["gpt-5.2-codex"],
-                modelBreakdowns: nil),
-            CostUsageDailyReport.Entry(
-                date: "2025-12-05",
-                inputTokens: 50,
-                outputTokens: 10,
-                totalTokens: 60,
-                costUSD: 0.03,
-                modelsUsed: ["gpt-5.3-codex"],
-                modelBreakdowns: nil),
-        ]
-
-        let model = CostHistoryChartMenuView.makeModel(provider: .codex, daily: daily)
-
-        #expect(model.points.count == 3)
-        let missingDay = try #require(model.pointsByDateKey["2025-12-04"])
-        #expect(missingDay.isPlaceholder == true)
+    private static func date(year: Int, month: Int, day: Int, hour: Int) -> Date? {
+        var components = DateComponents()
+        components.calendar = Calendar.current
+        components.timeZone = TimeZone.current
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        return components.date
     }
 }
