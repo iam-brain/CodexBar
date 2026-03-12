@@ -18,8 +18,7 @@ struct CostUsagePricingTests {
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.1-codex-mini") == "gpt-5.1-codex-mini")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.3-codex-max") == "gpt-5.3")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.3-chat-latest") == "gpt-5.3-chat-latest")
-        #expect(CostUsagePricing.normalizeCodexModel("gpt-5.4-codex") == "gpt-5.4-codex")
-        #expect(CostUsagePricing.normalizeCodexModel("gpt-5.4-codex-2025-10-06") == "gpt-5.4-codex")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5.4-2025-10-06") == "gpt-5.4")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.4-pro") == "gpt-5.4-pro")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.4-pro-2025-10-06") == "gpt-5.4-pro")
     }
@@ -60,9 +59,9 @@ struct CostUsagePricingTests {
     }
 
     @Test
-    func codexCostSupportsGpt54Codex() {
+    func codexCostSupportsGpt54Base() {
         let cost = CostUsagePricing.codexCostUSD(
-            model: "gpt-5.4-codex",
+            model: "gpt-5.4",
             inputTokens: 100,
             cachedInputTokens: 10,
             outputTokens: 5)
@@ -101,7 +100,7 @@ struct CostUsagePricingTests {
             cachedInputTokens: 0,
             outputTokens: 5) != nil)
         #expect(CostUsagePricing.codexCostUSD(
-            model: "gpt-5.4-codex-2025-10-06",
+            model: "gpt-5.4-2025-10-06",
             inputTokens: 100,
             cachedInputTokens: 10,
             outputTokens: 5) != nil)
@@ -122,46 +121,25 @@ struct CostUsagePricingTests {
     }
 
     @Test
-    func codexCostAppliesGpt54LargeContextSurcharge() throws {
-        let standard = try #require(CostUsagePricing.codexCostUSD(
-            model: "gpt-5.4",
-            inputTokens: 272_000,
-            cachedInputTokens: 0,
-            outputTokens: 0))
-        let surcharge = try #require(CostUsagePricing.codexCostUSD(
-            model: "gpt-5.4",
-            inputTokens: 272_001,
-            cachedInputTokens: 0,
-            outputTokens: 0))
-        #expect(standard == Double(272_000) * 2.5e-6)
-        #expect(surcharge == Double(272_001) * 5e-6)
-    }
-
-    @Test
-    func codexCostAppliesGpt54CachedRateAboveThreshold() throws {
+    func codexCostUsesStandardGpt54RatesForLocalScans() throws {
         let cost = try #require(CostUsagePricing.codexCostUSD(
             model: "gpt-5.4",
             inputTokens: 300_000,
             cachedInputTokens: 10000,
             outputTokens: 0))
-        let expected = Double(290_000) * 5e-6 + Double(10000) * 5e-7
+        let expected = Double(290_000) * 2.5e-6 + Double(10000) * 2.5e-7
         #expect(cost == expected)
     }
 
     @Test
-    func codexCostAppliesGpt54ProLargeContextSurcharge() throws {
-        let standard = try #require(CostUsagePricing.codexCostUSD(
+    func codexCostUsesStandardGpt54ProRatesForLocalScans() throws {
+        let cost = try #require(CostUsagePricing.codexCostUSD(
             model: "gpt-5.4-pro",
-            inputTokens: 272_000,
+            inputTokens: 300_000,
             cachedInputTokens: 0,
-            outputTokens: 0))
-        let surcharge = try #require(CostUsagePricing.codexCostUSD(
-            model: "gpt-5.4-pro",
-            inputTokens: 272_001,
-            cachedInputTokens: 0,
-            outputTokens: 0))
-        #expect(standard == Double(272_000) * 3e-5)
-        #expect(surcharge == Double(272_001) * 6e-5)
+            outputTokens: 100))
+        let expected = Double(300_000) * 3e-5 + Double(100) * 1.8e-4
+        #expect(cost == expected)
     }
 
     @Test

@@ -130,26 +130,11 @@ enum CostUsagePricing {
         "gpt-5.4": CodexPricing(
             inputCostPerToken: 2.5e-6,
             outputCostPerToken: 1.5e-5,
-            cacheReadInputCostPerToken: 2.5e-7,
-            thresholdTokens: 272_000,
-            inputCostPerTokenAboveThreshold: 5e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 5e-7),
-        "gpt-5.4-codex": CodexPricing(
-            inputCostPerToken: 2.5e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheReadInputCostPerToken: 2.5e-7,
-            thresholdTokens: 272_000,
-            inputCostPerTokenAboveThreshold: 5e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 5e-7),
+            cacheReadInputCostPerToken: 2.5e-7),
         "gpt-5.4-pro": CodexPricing(
             inputCostPerToken: 3e-5,
             outputCostPerToken: 1.8e-4,
-            cacheReadInputCostPerToken: nil,
-            thresholdTokens: 272_000,
-            inputCostPerTokenAboveThreshold: 6e-5,
-            outputCostPerTokenAboveThreshold: 2.7e-4),
+            cacheReadInputCostPerToken: nil),
     ]
 
     private static let claude: [String: ClaudePricing] = [
