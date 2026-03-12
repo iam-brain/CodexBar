@@ -267,17 +267,11 @@ enum CostUsagePricing {
 
     static func normalizeCodexModel(_ raw: String) -> String {
         var trimmed = self.displayCodexModel(raw)
-        if trimmed.hasSuffix("-fast") {
-            trimmed = String(trimmed.dropLast("-fast".count))
-        }
         if let snapshotBase = self.codexSnapshotBaseModel(trimmed) {
             trimmed = snapshotBase
         }
         if self.codex[trimmed] != nil {
             return trimmed
-        }
-        if let fastBase = self.codexFastBaseModel(trimmed) {
-            return fastBase
         }
         if let codexRange = trimmed.range(of: "-codex"), !trimmed.contains("-codex-mini") {
             let base = String(trimmed[..<codexRange.lowerBound])
@@ -310,12 +304,6 @@ enum CostUsagePricing {
         }
 
         return nil
-    }
-
-    private static func codexFastBaseModel(_ raw: String) -> String? {
-        guard raw.hasSuffix("-fast") else { return nil }
-        let base = String(raw.dropLast("-fast".count))
-        return self.codex[base] != nil ? base : nil
     }
 
     static func normalizeClaudeModel(_ raw: String) -> String {

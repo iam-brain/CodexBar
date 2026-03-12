@@ -7,13 +7,10 @@ struct CostUsagePricingTests {
     func normalizesCodexModelVariants() {
         #expect(CostUsagePricing.normalizeCodexModel("openai/gpt-5-codex") == "gpt-5-codex")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5-codex-mini") == "gpt-5-codex-mini")
-        #expect(CostUsagePricing.normalizeCodexModel("openai/gpt-5-codex-mini-fast") == "gpt-5-codex-mini")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5-2025-10-06") == "gpt-5")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5-chat") == "gpt-5-chat")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5-mini-2025-10-06") == "gpt-5-mini")
-        #expect(CostUsagePricing.normalizeCodexModel("gpt-5-mini-2025-10-06-fast") == "gpt-5-mini")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5-pro-2025-10-06") == "gpt-5-pro")
-        #expect(CostUsagePricing.normalizeCodexModel("gpt-5-pro-2025-10-06-fast") == "gpt-5-pro")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.2-codex") == "gpt-5.2-codex")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.2-chat") == "gpt-5.2-chat")
         #expect(CostUsagePricing.normalizeCodexModel("gpt-5.2-pro") == "gpt-5.2-pro")
@@ -105,11 +102,6 @@ struct CostUsagePricingTests {
             outputTokens: 5) != nil)
         #expect(CostUsagePricing.codexCostUSD(
             model: "gpt-5.4-codex-2025-10-06",
-            inputTokens: 100,
-            cachedInputTokens: 10,
-            outputTokens: 5) != nil)
-        #expect(CostUsagePricing.codexCostUSD(
-            model: "gpt-5.4-codex-2025-10-06-fast",
             inputTokens: 100,
             cachedInputTokens: 10,
             outputTokens: 5) != nil)
