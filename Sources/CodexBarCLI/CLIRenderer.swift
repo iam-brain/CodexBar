@@ -12,6 +12,7 @@ enum CLIRenderer {
         provider: UsageProvider,
         snapshot: UsageSnapshot,
         credits: CreditsSnapshot?,
+        accountInfo: AccountInfo? = nil,
         context: RenderContext) -> String
     {
         let meta = ProviderDescriptorRegistry.descriptor(for: provider).metadata
@@ -32,11 +33,18 @@ enum CLIRenderer {
             context: context,
             now: now,
             lines: &lines)
-        self.appendTertiaryLines(snapshot: snapshot, metadata: meta, context: context, now: now, lines: &lines)
+        self.appendAdditionalWindowLines(
+            provider: provider,
+            snapshot: snapshot,
+            accountInfo: accountInfo,
+            context: context,
+            now: now,
+            lines: &lines)
         self.appendCreditsLine(provider: provider, credits: credits, useColor: context.useColor, lines: &lines)
         self.appendIdentityAndNotes(
             provider: provider,
             snapshot: snapshot,
+            accountInfo: accountInfo,
             context: context,
             lines: &lines)
 
@@ -106,16 +114,47 @@ enum CLIRenderer {
             lines: &lines)
     }
 
-    private static func appendTertiaryLines(
+    // swiftlint:disable:next function_parameter_count
+    private static func appendAdditionalWindowLines(
+        provider: UsageProvider,
         snapshot: UsageSnapshot,
-        metadata: ProviderMetadata,
+        accountInfo: AccountInfo?,
         context: RenderContext,
         now: Date,
         lines: inout [String])
     {
-        guard metadata.supportsOpus, let opus = snapshot.tertiary else { return }
-        lines.append(self.rateLine(title: metadata.opusLabel ?? "Sonnet", window: opus, useColor: context.useColor))
-        if let reset = self.resetLine(for: opus, style: context.resetStyle, now: now) {
+        let metadata = ProviderDescriptorRegistry.descriptor(for: provider).metadata
+        let showCodexSpark = self.shouldShowCodexSpark(
+            provider: provider,
+            snapshot: snapshot,
+            accountInfo: accountInfo)
+
+        if let tertiary = snapshot.tertiary, metadata.supportsOpus, showCodexSpark {
+            if provider == .codex {
+                lines.append("GPT-5.3-Codex-Spark")
+                lines.append(self.rateLine(title: "Session", window: tertiary, useColor: context.useColor))
+            } else {
+                lines.append(self.rateLine(
+                    title: metadata.opusLabel ?? "Sonnet",
+                    window: tertiary,
+                    useColor: context.useColor))
+            }
+            if let reset = self.resetLine(for: tertiary, style: context.resetStyle, now: now) {
+                lines.append(self.subtleLine(reset, useColor: context.useColor))
+            }
+        }
+
+        guard let quaternary = snapshot.quaternary, showCodexSpark else { return }
+        if provider == .codex {
+            if snapshot.tertiary == nil {
+                lines.append("GPT-5.3-Codex-Spark")
+            }
+            lines.append(self.rateLine(title: "Weekly", window: quaternary, useColor: context.useColor))
+        } else {
+            guard let label = metadata.quaternaryLabel else { return }
+            lines.append(self.rateLine(title: label, window: quaternary, useColor: context.useColor))
+        }
+        if let reset = self.resetLine(for: quaternary, style: context.resetStyle, now: now) {
             lines.append(self.subtleLine(reset, useColor: context.useColor))
         }
     }
@@ -136,6 +175,7 @@ enum CLIRenderer {
     private static func appendIdentityAndNotes(
         provider: UsageProvider,
         snapshot: UsageSnapshot,
+        accountInfo: AccountInfo?,
         context: RenderContext,
         lines: inout [String])
     {
@@ -152,7 +192,9 @@ enum CLIRenderer {
             for detail in kiloLogin.details {
                 lines.append(self.labelValueLine("Activity", value: detail, useColor: context.useColor))
             }
-        } else if let plan = snapshot.loginMethod(for: provider), !plan.isEmpty {
+        } else if let plan = self.plan(provider: provider, snapshot: snapshot, accountInfo: accountInfo),
+                  !plan.isEmpty
+        {
             lines.append(self.labelValueLine("Plan", value: plan.capitalized, useColor: context.useColor))
         }
 
@@ -372,6 +414,40 @@ enum CLIRenderer {
 
     private static func ansi(_ code: String, _ text: String) -> String {
         "\u{001B}[\(code)m\(text)\u{001B}[0m"
+    }
+
+    private static func plan(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        accountInfo: AccountInfo?) -> String?
+    {
+        if let loginMethod = snapshot.loginMethod(for: provider)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !loginMethod.isEmpty
+        {
+            return loginMethod
+        }
+        if let accountPlan = accountInfo?.plan?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !accountPlan.isEmpty
+        {
+            return accountPlan
+        }
+        return nil
+    }
+
+    private static func codexPlan(snapshot: UsageSnapshot, accountInfo: AccountInfo?) -> String? {
+        self.plan(provider: .codex, snapshot: snapshot, accountInfo: accountInfo)
+    }
+
+    private static func shouldShowCodexSpark(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        accountInfo: AccountInfo?) -> Bool
+    {
+        guard provider == .codex else { return true }
+        if snapshot.tertiary != nil || snapshot.quaternary != nil {
+            return true
+        }
+        return UsageFormatter.isProPlan(self.codexPlan(snapshot: snapshot, accountInfo: accountInfo))
     }
 }
 

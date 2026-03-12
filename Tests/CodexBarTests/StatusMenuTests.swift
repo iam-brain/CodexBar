@@ -709,6 +709,66 @@ struct StatusMenuTests {
     }
 
     @Test
+    func codexProMenuSeparatesUsageSparkAndCreditsSections() throws {
+        self.disableMenuCardsForTesting()
+        let settings = self.makeSettings()
+        settings.statusChecksEnabled = false
+        settings.refreshFrequency = .manual
+        settings.mergeIcons = true
+        settings.selectedMenuProvider = .codex
+
+        let registry = ProviderRegistry.shared
+        if let codexMeta = registry.metadata[.codex] {
+            settings.setProviderEnabled(provider: .codex, metadata: codexMeta, enabled: true)
+        }
+        if let claudeMeta = registry.metadata[.claude] {
+            settings.setProviderEnabled(provider: .claude, metadata: claudeMeta, enabled: false)
+        }
+        if let geminiMeta = registry.metadata[.gemini] {
+            settings.setProviderEnabled(provider: .gemini, metadata: geminiMeta, enabled: false)
+        }
+
+        let fetcher = UsageFetcher()
+        let store = UsageStore(fetcher: fetcher, browserDetection: BrowserDetection(cacheTTL: 0), settings: settings)
+        store._setSnapshotForTesting(UsageSnapshot(
+            primary: RateWindow(usedPercent: 10, windowMinutes: 300, resetsAt: Date(), resetDescription: nil),
+            secondary: RateWindow(usedPercent: 20, windowMinutes: 10080, resetsAt: Date(), resetDescription: nil),
+            tertiary: RateWindow(usedPercent: 3, windowMinutes: 300, resetsAt: Date(), resetDescription: nil),
+            quaternary: RateWindow(usedPercent: 17, windowMinutes: 10080, resetsAt: Date(), resetDescription: nil),
+            updatedAt: Date(),
+            identity: ProviderIdentitySnapshot(
+                providerID: .codex,
+                accountEmail: "codex@example.com",
+                accountOrganization: nil,
+                loginMethod: "Pro")), provider: .codex)
+        store.credits = CreditsSnapshot(remaining: 42, events: [], updatedAt: Date())
+
+        let controller = StatusItemController(
+            store: store,
+            settings: settings,
+            account: fetcher.loadAccountInfo(),
+            updater: DisabledUpdaterController(),
+            preferencesSelection: PreferencesSelection(),
+            statusBar: self.makeStatusBarForTesting())
+
+        let menu = controller.makeMenu()
+        controller.menuWillOpen(menu)
+        let ids = self.representedIDs(in: menu)
+        let usageIndex = ids.firstIndex(of: "menuCardUsage")
+        let sparkIndex = ids.firstIndex(of: "menuCardSpark")
+        let creditsIndex = ids.firstIndex(of: "menuCardCredits")
+
+        #expect(usageIndex != nil)
+        #expect(sparkIndex != nil)
+        #expect(creditsIndex != nil)
+        let requiredUsageIndex = try #require(usageIndex)
+        let requiredSparkIndex = try #require(sparkIndex)
+        let requiredCreditsIndex = try #require(creditsIndex)
+        #expect(requiredUsageIndex < requiredSparkIndex)
+        #expect(requiredSparkIndex < requiredCreditsIndex)
+    }
+
+    @Test
     func showsVertexCostWhenUsageErrorPresent() {
         self.disableMenuCardsForTesting()
         let settings = self.makeSettings()

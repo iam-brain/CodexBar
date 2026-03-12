@@ -241,14 +241,14 @@ enum CostUsageScanner {
         func add(dayKey: String, model: String, input: Int, cached: Int, output: Int) {
             guard CostUsageDayRange.isInRange(dayKey: dayKey, since: range.scanSinceKey, until: range.scanUntilKey)
             else { return }
-            let normModel = CostUsagePricing.normalizeCodexModel(model)
+            let storageModel = Self.storageCodexModel(model)
 
             var dayModels = days[dayKey] ?? [:]
-            var packed = dayModels[normModel] ?? [0, 0, 0]
+            var packed = dayModels[storageModel] ?? [0, 0, 0]
             packed[0] = (packed[safe: 0] ?? 0) + input
             packed[1] = (packed[safe: 1] ?? 0) + cached
             packed[2] = (packed[safe: 2] ?? 0) + output
-            dayModels[normModel] = packed
+            dayModels[storageModel] = packed
             days[dayKey] = dayModels
         }
 
@@ -315,7 +315,10 @@ enum CostUsageScanner {
                     ?? info?["model_name"] as? String
                     ?? payload["model"] as? String
                     ?? obj["model"] as? String
-                let model = modelFromInfo ?? currentModel ?? "gpt-5"
+                let model = modelFromInfo
+                    ?? Self.codexModelFromRateLimits(payload: payload, info: info)
+                    ?? currentModel
+                    ?? "gpt-5"
 
                 func toInt(_ v: Any?) -> Int {
                     if let n = v as? NSNumber { return n.intValue }
@@ -358,6 +361,44 @@ enum CostUsageScanner {
             lastModel: currentModel,
             lastTotals: previousTotals,
             sessionId: sessionId)
+    }
+
+    private static func codexModelFromRateLimits(payload: [String: Any], info: [String: Any]?) -> String? {
+        let rateLimits = payload["rate_limits"] as? [String: Any]
+            ?? info?["rate_limits"] as? [String: Any]
+
+        if let limitName = rateLimits?["limit_name"] as? String,
+           limitName.caseInsensitiveCompare("GPT-5.3-Codex-Spark") == .orderedSame
+        {
+            return "gpt-5.3-codex-spark"
+        }
+
+        if let meteredFeature = rateLimits?["metered_feature"] as? String {
+            let normalizedFeature = meteredFeature
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if normalizedFeature == "codex_bengalfox" {
+                return "gpt-5.3-codex-spark"
+            }
+        }
+
+        return nil
+    }
+
+    private static func displayCodexModel(_ raw: String) -> String {
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("openai/") {
+            trimmed = String(trimmed.dropFirst("openai/".count))
+        }
+        return trimmed
+    }
+
+    private static func storageCodexModel(_ raw: String) -> String {
+        let displayModel = Self.displayCodexModel(raw)
+        if displayModel.lowercased().contains("-codex-spark") {
+            return displayModel
+        }
+        return CostUsagePricing.normalizeCodexModel(displayModel)
     }
 
     private static func scanCodexFile(

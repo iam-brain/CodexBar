@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import CodexBarCore
 
+// swiftlint:disable type_body_length
 @Suite
 struct CostUsageScannerTests {
     @Test
@@ -892,7 +893,302 @@ struct CostUsageScannerTests {
         #expect(scanned[1].bytes.isEmpty)
         #expect(scanned[1].wasTruncated == true)
     }
+
+    @Test
+    func codexDailyReportRecoversSparkFromRateLimitMetadata() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 25)
+        let iso0 = env.isoString(for: day)
+
+        let tokenCountWithoutModel: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso0,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 80,
+                        "cached_input_tokens": 10,
+                        "output_tokens": 8,
+                    ],
+                ],
+                "rate_limits": [
+                    "limit_name": "GPT-5.3-Codex-Spark",
+                ],
+            ],
+        ]
+
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "session-spark-rate-limit.jsonl",
+            contents: env.jsonl([tokenCountWithoutModel]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let entry = try #require(report.data.first)
+        #expect(entry.modelsUsed == ["gpt-5.3-codex-spark"])
+        let sparkBreakdown = try #require(entry.modelBreakdowns?.first { $0.modelName == "gpt-5.3-codex-spark" })
+        #expect(sparkBreakdown.costUSD == nil)
+    }
+
+    @Test
+    func codexDailyReportPrefersSparkMetadataOverStaleCurrentModel() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 26)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+
+        let staleTurnContext: [String: Any] = [
+            "type": "turn_context",
+            "timestamp": iso0,
+            "payload": [
+                "model": "openai/gpt-5.3-codex",
+            ],
+        ]
+        let sparkTokenCount: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso1,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 80,
+                        "cached_input_tokens": 10,
+                        "output_tokens": 8,
+                    ],
+                ],
+                "rate_limits": [
+                    "limit_name": "GPT-5.3-Codex-Spark",
+                ],
+            ],
+        ]
+
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "session-spark-stale-model.jsonl",
+            contents: env.jsonl([staleTurnContext, sparkTokenCount]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let entry = try #require(report.data.first)
+        #expect(entry.modelsUsed == ["gpt-5.3-codex-spark"])
+        #expect(entry.modelBreakdowns?.contains { $0.modelName == "gpt-5.3-codex-spark" } == true)
+        #expect(entry.modelBreakdowns?.contains { $0.modelName == "gpt-5.3" } == false)
+    }
+
+    @Test
+    func codexDailyReportRecoversSparkFromMeteredFeatureMetadata() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 25)
+        let iso0 = env.isoString(for: day)
+
+        let tokenCountWithoutModel: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso0,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 80,
+                        "cached_input_tokens": 10,
+                        "output_tokens": 8,
+                    ],
+                ],
+                "rate_limits": [
+                    "metered_feature": "codex_bengalfox",
+                ],
+            ],
+        ]
+
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "session-spark-metered-feature.jsonl",
+            contents: env.jsonl([tokenCountWithoutModel]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let entry = try #require(report.data.first)
+        #expect(entry.modelsUsed == ["gpt-5.3-codex-spark"])
+        let sparkBreakdown = try #require(entry.modelBreakdowns?.first { $0.modelName == "gpt-5.3-codex-spark" })
+        #expect(sparkBreakdown.costUSD == nil)
+    }
+
+    @Test
+    func codexDailyReportIgnoresUnrelatedMeteredFeaturesThatContainSparkText() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 25)
+        let iso0 = env.isoString(for: day)
+
+        let tokenCountWithoutModel: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso0,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 80,
+                        "cached_input_tokens": 10,
+                        "output_tokens": 8,
+                    ],
+                ],
+                "rate_limits": [
+                    "metered_feature": "codex_sparkling_feature",
+                ],
+            ],
+        ]
+
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "session-non-spark-metered-feature.jsonl",
+            contents: env.jsonl([tokenCountWithoutModel]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let entry = try #require(report.data.first)
+        #expect(entry.modelsUsed == ["unknown"])
+        #expect(entry.modelBreakdowns?.first?.modelName == "unknown")
+    }
+
+    @Test
+    func codexDailyReportKeepsSparkBreakdownDistinct() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 21)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+        let iso2 = env.isoString(for: day.addingTimeInterval(2))
+        let iso3 = env.isoString(for: day.addingTimeInterval(3))
+
+        let standardModel = "openai/gpt-5.3-codex"
+        let sparkModel = "openai/gpt-5.3-codex-spark"
+        let turnContextStandard: [String: Any] = [
+            "type": "turn_context",
+            "timestamp": iso0,
+            "payload": [
+                "model": standardModel,
+            ],
+        ]
+        let standardTokenCount: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso1,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 100,
+                        "cached_input_tokens": 20,
+                        "output_tokens": 10,
+                    ],
+                    "model": standardModel,
+                ],
+            ],
+        ]
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "session-standard.jsonl",
+            contents: env.jsonl([turnContextStandard, standardTokenCount]))
+
+        let turnContextSpark: [String: Any] = [
+            "type": "turn_context",
+            "timestamp": iso2,
+            "payload": [
+                "model": sparkModel,
+            ],
+        ]
+        let sparkTokenCount: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso3,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 60,
+                        "cached_input_tokens": 10,
+                        "output_tokens": 6,
+                    ],
+                    "model": sparkModel,
+                ],
+            ],
+        ]
+
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "session-spark.jsonl",
+            contents: env.jsonl([turnContextSpark, sparkTokenCount]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let entry = try #require(report.data.first)
+        #expect(entry.costUSD != nil)
+        #expect(entry.modelsUsed == ["gpt-5.3", "gpt-5.3-codex-spark"])
+        #expect(entry.modelBreakdowns?.count == 2)
+        let standardBreakdown = try #require(entry.modelBreakdowns?.first { $0.modelName == "gpt-5.3" })
+        #expect(standardBreakdown.costUSD != nil)
+        let sparkBreakdown = try #require(entry.modelBreakdowns?.first { $0.modelName == "gpt-5.3-codex-spark" })
+        #expect(sparkBreakdown.costUSD == nil)
+    }
 }
+
+// swiftlint:enable type_body_length
 
 private struct CostUsageTestEnvironment {
     let root: URL

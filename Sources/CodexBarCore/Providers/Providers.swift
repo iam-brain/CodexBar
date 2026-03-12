@@ -61,6 +61,7 @@ public struct ProviderMetadata: Sendable {
     public let sessionLabel: String
     public let weeklyLabel: String
     public let opusLabel: String?
+    public let quaternaryLabel: String?
     public let supportsOpus: Bool
     public let supportsCredits: Bool
     public let creditsHint: String
@@ -85,6 +86,7 @@ public struct ProviderMetadata: Sendable {
         sessionLabel: String,
         weeklyLabel: String,
         opusLabel: String?,
+        quaternaryLabel: String? = nil,
         supportsOpus: Bool,
         supportsCredits: Bool,
         creditsHint: String,
@@ -105,6 +107,7 @@ public struct ProviderMetadata: Sendable {
         self.sessionLabel = sessionLabel
         self.weeklyLabel = weeklyLabel
         self.opusLabel = opusLabel
+        self.quaternaryLabel = quaternaryLabel
         self.supportsOpus = supportsOpus
         self.supportsCredits = supportsCredits
         self.creditsHint = creditsHint

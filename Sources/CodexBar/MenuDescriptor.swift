@@ -60,7 +60,7 @@ struct MenuDescriptor {
         var sections: [Section] = []
 
         if let provider {
-            sections.append(Self.usageSection(for: provider, store: store, settings: settings))
+            sections.append(Self.usageSection(for: provider, store: store, settings: settings, account: account))
             if let accountSection = Self.accountSection(
                 for: provider,
                 store: store,
@@ -73,7 +73,11 @@ struct MenuDescriptor {
             var addedUsage = false
 
             for enabledProvider in store.enabledProviders() {
-                sections.append(Self.usageSection(for: enabledProvider, store: store, settings: settings))
+                sections.append(Self.usageSection(
+                    for: enabledProvider,
+                    store: store,
+                    settings: settings,
+                    account: account))
                 addedUsage = true
             }
             if addedUsage {
@@ -105,7 +109,8 @@ struct MenuDescriptor {
     private static func usageSection(
         for provider: UsageProvider,
         store: UsageStore,
-        settings: SettingsStore) -> Section
+        settings: SettingsStore,
+        account: AccountInfo) -> Section
     {
         let meta = store.metadata(for: provider)
         var entries: [Entry] = []
@@ -171,13 +176,52 @@ struct MenuDescriptor {
                     entries.append(.text(paceSummary, .secondary))
                 }
             }
-            if meta.supportsOpus, let opus = snap.tertiary {
-                Self.appendRateWindow(
-                    entries: &entries,
-                    title: meta.opusLabel ?? "Sonnet",
-                    window: opus,
-                    resetStyle: resetStyle,
-                    showUsed: settings.usageBarsShowUsed)
+            let showCodexSpark = provider == .codex && Self.shouldShowCodexSpark(
+                provider: provider,
+                snapshot: snap,
+                metadata: meta,
+                account: account)
+            if provider == .codex, showCodexSpark {
+                if let opus = snap.tertiary {
+                    entries.append(.divider)
+                    entries.append(.text("GPT-5.3-Codex-Spark", .headline))
+                    Self.appendRateWindow(
+                        entries: &entries,
+                        title: "Session",
+                        window: opus,
+                        resetStyle: resetStyle,
+                        showUsed: settings.usageBarsShowUsed)
+                }
+                if let quaternary = snap.quaternary {
+                    if snap.tertiary == nil {
+                        entries.append(.divider)
+                        entries.append(.text("GPT-5.3-Codex-Spark", .headline))
+                    }
+                    Self.appendRateWindow(
+                        entries: &entries,
+                        title: "Weekly",
+                        window: quaternary,
+                        resetStyle: resetStyle,
+                        showUsed: settings.usageBarsShowUsed)
+                }
+            } else {
+                let hideCodexSparkWindows = provider == .codex
+                if !hideCodexSparkWindows, meta.supportsOpus, let opus = snap.tertiary {
+                    Self.appendRateWindow(
+                        entries: &entries,
+                        title: meta.opusLabel ?? "Sonnet",
+                        window: opus,
+                        resetStyle: resetStyle,
+                        showUsed: settings.usageBarsShowUsed)
+                }
+                if !hideCodexSparkWindows, let quaternary = snap.quaternary, let label = meta.quaternaryLabel {
+                    Self.appendRateWindow(
+                        entries: &entries,
+                        title: label,
+                        window: quaternary,
+                        resetStyle: resetStyle,
+                        showUsed: settings.usageBarsShowUsed)
+                }
             }
 
             if let cost = snap.providerCost {
@@ -201,6 +245,23 @@ struct MenuDescriptor {
             .appendUsageMenuEntries(context: usageContext, entries: &entries)
 
         return Section(entries: entries)
+    }
+
+    private static func shouldShowCodexSpark(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        metadata: ProviderMetadata,
+        account: AccountInfo) -> Bool
+    {
+        if snapshot.tertiary != nil || snapshot.quaternary != nil {
+            return true
+        }
+        let fallbackPlan: String? = if metadata.usesAccountFallback {
+            account.plan
+        } else {
+            nil
+        }
+        return UsageFormatter.isProPlan(snapshot.loginMethod(for: provider) ?? fallbackPlan)
     }
 
     private static func accountSection(
