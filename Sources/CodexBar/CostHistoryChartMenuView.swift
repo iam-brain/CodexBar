@@ -154,6 +154,7 @@ struct CostHistoryChartMenuView: View {
     }
 
     private static let selectionBandColor = Color(nsColor: .labelColor).opacity(0.1)
+    private static let maxVisibleDetailLines = 4
 
     private static func capHeight(maxValue: Double) -> Double {
         maxValue * 0.05
@@ -188,7 +189,7 @@ struct CostHistoryChartMenuView: View {
         }
 
         for entry in sorted {
-            guard let displayCostUSD = Self.displayCostUSD(for: entry), displayCostUSD > 0 else { continue }
+            guard let displayCostUSD = Self.displayCostUSD(for: entry) else { continue }
             guard let date = self.dateFromDayKey(entry.date) else { continue }
             let point = Point(
                 date: date,
@@ -199,10 +200,12 @@ struct CostHistoryChartMenuView: View {
             pointsByKey[entry.date] = point
             dateKeys.append((entry.date, date))
 
-            if let cur = peak {
-                if displayCostUSD > cur.costUSD { peak = (entry.date, displayCostUSD) }
-            } else {
-                peak = (entry.date, displayCostUSD)
+            if displayCostUSD > 0 {
+                if let cur = peak {
+                    if displayCostUSD > cur.costUSD { peak = (entry.date, displayCostUSD) }
+                } else {
+                    peak = (entry.date, displayCostUSD)
+                }
             }
         }
 
@@ -254,7 +257,7 @@ struct CostHistoryChartMenuView: View {
 
     private static func detailLineCount(for entry: DailyEntry) -> Int {
         guard let breakdown = entry.modelBreakdowns, !breakdown.isEmpty else { return 0 }
-        return breakdown.count
+        return min(breakdown.count, Self.maxVisibleDetailLines)
     }
 
     private func selectionBandRect(model: Model, proxy: ChartProxy, geo: GeometryProxy) -> CGRect? {
@@ -378,7 +381,10 @@ struct CostHistoryChartMenuView: View {
         let subtotal = breakdown.reduce(0.0) { partial, item in
             partial + max(0, item.costUSD ?? 0)
         }
-        return subtotal > 0 ? subtotal : nil
+        if subtotal > 0 {
+            return subtotal
+        }
+        return (entry.totalTokens ?? 0) > 0 ? 0 : nil
     }
 
     private static func modelLines(key: String, model: Model) -> [DetailModelLine] {
@@ -404,7 +410,16 @@ struct CostHistoryChartMenuView: View {
                 }
                 return DetailModelLine(id: item.id, text: "\(item.name): unpriced\(tokensSuffix)")
             }
-        return Array(parts)
+        if parts.count <= Self.maxVisibleDetailLines {
+            return Array(parts)
+        }
+
+        let visibleCount = max(0, Self.maxVisibleDetailLines - 1)
+        let overflowCount = parts.count - visibleCount
+        var visible = Array(parts.prefix(visibleCount))
+        let label = overflowCount == 1 ? "1 more model" : "\(overflowCount) more models"
+        visible.append(DetailModelLine(id: "__overflow__", text: label))
+        return visible
     }
 
     private static func detailModelDisplayName(_ raw: String) -> String {

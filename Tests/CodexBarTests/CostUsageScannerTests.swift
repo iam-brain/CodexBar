@@ -899,6 +899,63 @@ struct CostUsageScannerTests {
 
 extension CostUsageScannerTests {
     @Test
+    func codexDailyReportRecoversModelFromTruncatedUtf8TurnContextPrefix() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 24)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+
+        let fileURL = try env.writeCodexSessionFile(day: day, filename: "session-truncated-utf8.jsonl", contents: "")
+
+        let turnPrefix =
+            #"{"type":"turn_context","timestamp":"\#(iso0)","payload":{"model":"openai/gpt-5.4","notes":""#
+        let fillerCount = (32 * 1024) - Data(turnPrefix.utf8).count - 1
+        #expect(fillerCount > 0)
+
+        let tokenCount: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso1,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 100,
+                        "cached_input_tokens": 20,
+                        "output_tokens": 10,
+                    ],
+                ],
+            ],
+        ]
+
+        var contents = Data(turnPrefix.utf8)
+        contents.append(Data(repeating: 0x61, count: fillerCount))
+        contents.append(Data([0xC3, 0xA9]))
+        contents.append(Data(#""}}"#.utf8))
+        contents.append(Data([0x0A]))
+        let tokenCountJsonl = try env.jsonl([tokenCount])
+        contents.append(Data(tokenCountJsonl.utf8))
+        try contents.write(to: fileURL)
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let entry = try #require(report.data.first)
+        #expect(entry.modelsUsed == ["gpt-5.4"])
+        #expect(entry.modelBreakdowns?.first?.modelName == "gpt-5.4")
+    }
+
+    @Test
     func codexDailyReportRecoversModelFromSessionMetaInstructions() throws {
         let env = try CostUsageTestEnvironment()
         defer { env.cleanup() }
@@ -950,10 +1007,84 @@ extension CostUsageScannerTests {
             now: day,
             options: options)
         let entry = try #require(report.data.first)
-        #expect(entry.modelsUsed == ["gpt-5.2"])
+        #expect(entry.modelsUsed == ["gpt-5.2-codex"])
         #expect(entry.modelBreakdowns?.contains {
-            $0.modelName == "gpt-5.2" && $0.costUSD != nil && $0.totalTokens == 110
+            $0.modelName == "gpt-5.2-codex" && $0.costUSD != nil && $0.totalTokens == 110
         } == true)
+    }
+
+    @Test
+    func codexDailyReportMergesRecoveredAndExplicitCodexAliases() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let day = try env.makeLocalNoon(year: 2025, month: 12, day: 24)
+        let iso0 = env.isoString(for: day)
+        let iso1 = env.isoString(for: day.addingTimeInterval(1))
+        let iso2 = env.isoString(for: day.addingTimeInterval(2))
+
+        let sessionMeta: [String: Any] = [
+            "type": "session_meta",
+            "timestamp": iso0,
+            "payload": [
+                "id": "sess-meta-merge",
+                "base_instructions": [
+                    "text": "You are GPT-5.2 running in the Codex CLI.",
+                ],
+            ],
+        ]
+        let recoveredTokenCount: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso1,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 100,
+                        "cached_input_tokens": 20,
+                        "output_tokens": 10,
+                    ],
+                ],
+            ],
+        ]
+        let explicitTokenCount: [String: Any] = [
+            "type": "event_msg",
+            "timestamp": iso2,
+            "payload": [
+                "type": "token_count",
+                "info": [
+                    "total_token_usage": [
+                        "input_tokens": 180,
+                        "cached_input_tokens": 40,
+                        "output_tokens": 20,
+                    ],
+                    "model": "openai/gpt-5.2-codex",
+                ],
+            ],
+        ]
+
+        _ = try env.writeCodexSessionFile(
+            day: day,
+            filename: "session-meta-merge.jsonl",
+            contents: env.jsonl([sessionMeta, recoveredTokenCount, explicitTokenCount]))
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: env.cacheRoot)
+        options.refreshMinIntervalSeconds = 0
+
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let entry = try #require(report.data.first)
+        #expect(entry.modelsUsed == ["gpt-5.2-codex"])
+        #expect(entry.modelBreakdowns?.count == 1)
+        #expect(entry.modelBreakdowns?.first?.modelName == "gpt-5.2-codex")
+        #expect(entry.modelBreakdowns?.first?.totalTokens == 200)
     }
 
     @Test

@@ -7,6 +7,9 @@ enum CostUsageScanner {
     private static let codexTurnContextModelRegex = try? NSRegularExpression(
         pattern: #""model":"([^"]+)""#,
         options: [])
+    private static let codexImplicitContextRegex = try? NSRegularExpression(
+        pattern: #"Codex(?:\s+CLI)?"#,
+        options: [.caseInsensitive])
 
     enum ClaudeLogProviderFilter: Sendable {
         case all
@@ -388,7 +391,7 @@ enum CostUsageScanner {
     }
 
     private static func codexModelFromTruncatedLinePrefix(_ bytes: Data) -> String? {
-        guard let text = String(data: bytes, encoding: .utf8) else { return nil }
+        let text = Self.lossyASCIIString(from: bytes)
 
         if let regex = self.codexTurnContextModelRegex {
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
@@ -400,6 +403,14 @@ enum CostUsageScanner {
         }
 
         return Self.codexModelFromInstructions(text)
+    }
+
+    private static func lossyASCIIString(from bytes: Data) -> String {
+        let replacement = UnicodeScalar(0xFFFD)!
+        let scalars = bytes.map { byte in
+            byte < 0x80 ? UnicodeScalar(Int(byte))! : replacement
+        }
+        return String(String.UnicodeScalarView(scalars))
     }
 
     private static func codexModelFromSessionMeta(payload: [String: Any]?) -> String? {
@@ -439,7 +450,15 @@ enum CostUsageScanner {
                 model += "-\(primaryTier)"
             }
         default:
-            break
+            if let regex = self.codexImplicitContextRegex {
+                let range = NSRange(text.startIndex..<text.endIndex, in: text)
+                if regex.firstMatch(in: text, range: range) != nil {
+                    let codexModel = "\(model)-codex"
+                    if CostUsagePricing.isKnownRawCodexModel(codexModel) {
+                        model = codexModel
+                    }
+                }
+            }
         }
 
         return model

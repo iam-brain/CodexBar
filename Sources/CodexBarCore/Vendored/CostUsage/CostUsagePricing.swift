@@ -176,6 +176,14 @@ enum CostUsagePricing {
         return trimmed
     }
 
+    static func isKnownRawCodexModel(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = trimmed.hasPrefix("openai/")
+            ? String(trimmed.dropFirst("openai/".count))
+            : trimmed
+        return self.codex[display] != nil
+    }
+
     static func normalizeClaudeModel(_ raw: String) -> String {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("anthropic.") {

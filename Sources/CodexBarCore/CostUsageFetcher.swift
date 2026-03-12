@@ -83,10 +83,14 @@ public struct CostUsageFetcher: Sendable {
             if lTokens != rTokens { return lTokens < rTokens }
             return lhs.date < rhs.date
         }
-        // Prefer summary totals when present; fall back to summing daily entries.
+        // When the scanner emitted a summary, preserve its aggregate cost semantics even when the total is nil.
         let totalFromSummary = daily.summary?.totalCostUSD
         let totalFromEntries = daily.data.compactMap(\.costUSD).reduce(0, +)
-        let last30DaysCostUSD = totalFromSummary ?? (totalFromEntries > 0 ? totalFromEntries : nil)
+        let last30DaysCostUSD: Double? = if daily.summary != nil {
+            totalFromSummary
+        } else {
+            totalFromEntries > 0 ? totalFromEntries : nil
+        }
         let totalTokensFromSummary = daily.summary?.totalTokens
         let totalTokensFromEntries = daily.data.compactMap(\.totalTokens).reduce(0, +)
         let last30DaysTokens = totalTokensFromSummary ?? (totalTokensFromEntries > 0 ? totalTokensFromEntries : nil)

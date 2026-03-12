@@ -87,4 +87,57 @@ struct CostHistoryChartMenuViewTests {
         #expect(detail.primary.contains("partial"))
         #expect(detail.primary.contains("120 tokens"))
     }
+
+    @Test
+    @MainActor
+    func makeModelKeepsUnknownOnlyDaysVisible() throws {
+        let daily = [
+            CostUsageDailyReport.Entry(
+                date: "2025-12-01",
+                inputTokens: 100,
+                outputTokens: 20,
+                totalTokens: 120,
+                costUSD: nil,
+                modelsUsed: ["unknown"],
+                modelBreakdowns: [
+                    .init(modelName: "unknown", costUSD: nil, totalTokens: 120),
+                ]),
+        ]
+
+        let model = CostHistoryChartMenuView.makeModel(provider: .codex, daily: daily)
+        let point = try #require(model.pointsByDateKey["2025-12-01"])
+        let detail = CostHistoryChartMenuView.detailContent(selectedDateKey: "2025-12-01", model: model)
+
+        #expect(point.displayCostUSD == 0)
+        #expect(detail.primary.contains("No priced cost data"))
+        #expect(detail.primary.contains("120 tokens"))
+    }
+
+    @Test
+    @MainActor
+    func makeModelCapsDetailRowsForBusyDays() {
+        let daily = [
+            CostUsageDailyReport.Entry(
+                date: "2025-12-01",
+                inputTokens: 300,
+                outputTokens: 60,
+                totalTokens: 360,
+                costUSD: 0.18,
+                modelsUsed: ["gpt-5", "gpt-5-mini", "gpt-5-pro", "gpt-5.2", "unknown"],
+                modelBreakdowns: [
+                    .init(modelName: "gpt-5", costUSD: 0.04, totalTokens: 80),
+                    .init(modelName: "gpt-5-mini", costUSD: 0.02, totalTokens: 70),
+                    .init(modelName: "gpt-5-pro", costUSD: 0.05, totalTokens: 60),
+                    .init(modelName: "gpt-5.2", costUSD: 0.04, totalTokens: 80),
+                    .init(modelName: "unknown", costUSD: nil, totalTokens: 70),
+                ]),
+        ]
+
+        let model = CostHistoryChartMenuView.makeModel(provider: .codex, daily: daily)
+        let detail = CostHistoryChartMenuView.detailContent(selectedDateKey: "2025-12-01", model: model)
+
+        #expect(model.maxDetailLineCount == 4)
+        #expect(detail.models.count == 4)
+        #expect(detail.models.last?.text == "2 more models")
+    }
 }
