@@ -358,6 +358,28 @@ struct CostUsageDecodingTests {
     }
 
     @Test
+    func tokenSnapshotPreservesNilSummaryTotalCost() throws {
+        let json = """
+        {
+          "type": "daily",
+          "data": [
+            { "date": "2025-12-20", "costUSD": 1.00, "totalTokens": 10 },
+            { "date": "2025-12-21", "costUSD": null, "totalTokens": 20 }
+          ],
+          "summary": {
+            "totalCostUSD": null,
+            "totalTokens": 30
+          }
+        }
+        """
+
+        let report = try JSONDecoder().decode(CostUsageDailyReport.self, from: Data(json.utf8))
+        let snapshot = CostUsageFetcher.tokenSnapshot(from: report, now: Date())
+        #expect(snapshot.last30DaysCostUSD == nil)
+        #expect(snapshot.last30DaysTokens == 30)
+    }
+
+    @Test
     func tokenSnapshotFallsBackToSummedEntriesWhenSummaryMissing() throws {
         let json = """
         {
