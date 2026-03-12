@@ -56,7 +56,7 @@ struct CostUsageScannerTests {
             now: day,
             options: options)
         #expect(first.data.count == 1)
-        #expect(first.data[0].modelsUsed == ["gpt-5.2"])
+        #expect(first.data[0].modelsUsed == ["gpt-5.2-codex"])
         #expect(first.data[0].totalTokens == 110)
         #expect((first.data[0].costUSD ?? 0) > 0)
 
