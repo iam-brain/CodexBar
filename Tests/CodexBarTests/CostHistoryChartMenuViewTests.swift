@@ -7,7 +7,7 @@ import Testing
 struct CostHistoryChartMenuViewTests {
     @Test
     @MainActor
-    func makeSnapshotBuildsRollingThirtyDayWindowEndingToday() throws {
+    func makeDayStatesBuildsRollingThirtyDayWindowEndingToday() throws {
         let now = try #require(Self.date(year: 2026, month: 3, day: 12, hour: 9))
         let daily = [
             CostUsageDailyReport.Entry(
@@ -20,24 +20,24 @@ struct CostHistoryChartMenuViewTests {
                 modelBreakdowns: nil),
         ]
 
-        let snapshot = CostHistoryChartMenuView.TestSupport.makeSnapshot(daily: daily, now: now)
+        let days = CostHistoryChartMenuView.TestSupport.makeDayStates(daily: daily, now: now)
 
-        #expect(snapshot.points.count == 30)
-        #expect(snapshot.points.first?.dayKey == "2026-02-11")
-        #expect(snapshot.points.last?.dayKey == "2026-03-12")
+        #expect(days.count == 30)
+        #expect(days.first?.dayKey == "2026-02-11")
+        #expect(days.last?.dayKey == "2026-03-12")
 
-        let today = try #require(snapshot.points.last)
-        #expect(today.isPlaceholder == false)
-        #expect(today.actualCostUSD == 0.25)
+        let today = try #require(days.last)
+        #expect(today.hasEntry == true)
+        #expect(today.costUSD == 0.25)
 
-        let earlierDays = snapshot.points.dropLast()
-        #expect(earlierDays.contains(where: { !$0.isPlaceholder }) == false)
-        #expect(earlierDays.allSatisfy { $0.displayCostUSD == 0 })
+        let earlierDays = days.dropLast()
+        #expect(earlierDays.allSatisfy { $0.hasEntry == false })
+        #expect(earlierDays.allSatisfy { $0.costUSD == 0 })
     }
 
     @Test
     @MainActor
-    func makeSnapshotTreatsNilAndZeroCostDaysAsPlaceholders() throws {
+    func makeDayStatesKeepsNilAndZeroCostDaysAsEmptySlots() throws {
         let now = try #require(Self.date(year: 2026, month: 3, day: 12, hour: 9))
         let daily = [
             CostUsageDailyReport.Entry(
@@ -66,27 +66,22 @@ struct CostHistoryChartMenuViewTests {
                 modelBreakdowns: nil),
         ]
 
-        let snapshot = CostHistoryChartMenuView.TestSupport.makeSnapshot(
+        let days = CostHistoryChartMenuView.TestSupport.makeDayStates(
             provider: .claude,
             daily: daily,
             now: now)
 
-        let nilCostDay = try #require(snapshot.points.first { $0.dayKey == "2026-03-10" })
-        #expect(nilCostDay.hasUsage == true)
-        #expect(nilCostDay.isPlaceholder == true)
-        #expect(nilCostDay.displayCostUSD == 0)
-        #expect(nilCostDay.actualCostUSD == nil)
+        let nilCostDay = try #require(days.first { $0.dayKey == "2026-03-10" })
+        #expect(nilCostDay.hasEntry == true)
+        #expect(nilCostDay.costUSD == 0)
 
-        let zeroCostDay = try #require(snapshot.points.first { $0.dayKey == "2026-03-11" })
-        #expect(zeroCostDay.hasUsage == true)
-        #expect(zeroCostDay.isPlaceholder == true)
-        #expect(zeroCostDay.displayCostUSD == 0)
-        #expect(zeroCostDay.actualCostUSD == 0)
+        let zeroCostDay = try #require(days.first { $0.dayKey == "2026-03-11" })
+        #expect(zeroCostDay.hasEntry == true)
+        #expect(zeroCostDay.costUSD == 0)
 
-        let pricedDay = try #require(snapshot.points.first { $0.dayKey == "2026-03-12" })
-        #expect(pricedDay.isPlaceholder == false)
-        #expect(pricedDay.displayCostUSD > 0)
-        #expect(pricedDay.actualCostUSD == 0.08)
+        let pricedDay = try #require(days.first { $0.dayKey == "2026-03-12" })
+        #expect(pricedDay.hasEntry == true)
+        #expect(pricedDay.costUSD == 0.08)
     }
 
     private static func date(year: Int, month: Int, day: Int, hour: Int) -> Date? {
