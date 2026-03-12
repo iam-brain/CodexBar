@@ -156,7 +156,7 @@ struct CostHistoryChartMenuView: View {
             entriesByKey[entry.date] = entry
         }
 
-        let dayRange = Self.contiguousDayKeys(from: sorted)
+        let dayRange = Self.backfilledDayKeys(from: sorted, entriesByKey: entriesByKey)
         var points: [Point] = []
         points.reserveCapacity(dayRange.count)
 
@@ -232,25 +232,33 @@ struct CostHistoryChartMenuView: View {
         return comps.date
     }
 
-    private static func contiguousDayKeys(from sorted: [DailyEntry]) -> [(key: String, date: Date)] {
-        guard let firstEntry = sorted.first,
-              let lastEntry = sorted.last,
-              let firstDate = self.dateFromDayKey(firstEntry.date),
-              let lastDate = self.dateFromDayKey(lastEntry.date)
-        else {
-            return []
+    private static func backfilledDayKeys(
+        from sorted: [DailyEntry],
+        entriesByKey: [String: DailyEntry]) -> [(key: String, date: Date)]
+    {
+        let actualDays = sorted.compactMap { entry -> (key: String, date: Date)? in
+            guard let actualCostUSD = entry.costUSD, actualCostUSD > 0 else { return nil }
+            guard let date = self.dateFromDayKey(entry.date) else { return nil }
+            return (entry.date, date)
         }
+        guard let first = actualDays.first else { return [] }
 
-        var days: [(key: String, date: Date)] = []
-        var current = firstDate
+        var days: [(key: String, date: Date)] = [first]
         let calendar = Calendar.current
+        var previous = first
 
-        while current <= lastDate {
-            let comps = calendar.dateComponents([.year, .month, .day], from: current)
-            let key = String(format: "%04d-%02d-%02d", comps.year ?? 1970, comps.month ?? 1, comps.day ?? 1)
-            days.append((key, current))
-            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
-            current = next
+        for actual in actualDays.dropFirst() {
+            var current = calendar.date(byAdding: .day, value: 1, to: previous.date)
+            while let currentDate = current, currentDate < actual.date {
+                let comps = calendar.dateComponents([.year, .month, .day], from: currentDate)
+                let key = String(format: "%04d-%02d-%02d", comps.year ?? 1970, comps.month ?? 1, comps.day ?? 1)
+                if entriesByKey[key] == nil {
+                    days.append((key, currentDate))
+                }
+                current = calendar.date(byAdding: .day, value: 1, to: currentDate)
+            }
+            days.append(actual)
+            previous = actual
         }
 
         return days
