@@ -165,4 +165,102 @@ struct MenuDescriptorKiloTests {
         #expect(textLines.contains("Activity: Auto top-up: off"))
         #expect(!textLines.contains("Plan: Auto top-up: off"))
     }
+
+    @Test
+    func codexSparkSectionOnlyRendersForProPlan() throws {
+        let suite = "MenuDescriptorKiloTests-codex-spark-pro"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        settings.statusChecksEnabled = false
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 10, windowMinutes: 300, resetsAt: Date(), resetDescription: nil),
+            secondary: RateWindow(usedPercent: 20, windowMinutes: 10080, resetsAt: Date(), resetDescription: nil),
+            tertiary: RateWindow(usedPercent: 3, windowMinutes: 300, resetsAt: Date(), resetDescription: nil),
+            quaternary: RateWindow(usedPercent: 17, windowMinutes: 10080, resetsAt: Date(), resetDescription: nil),
+            updatedAt: Date(),
+            identity: ProviderIdentitySnapshot(
+                providerID: .codex,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: "Plus"))
+        store._setSnapshotForTesting(snapshot, provider: .codex)
+
+        let descriptor = MenuDescriptor.build(
+            provider: .codex,
+            store: store,
+            settings: settings,
+            account: AccountInfo(email: nil, plan: nil),
+            updateReady: false,
+            includeContextualActions: false)
+
+        let textLines = descriptor.sections
+            .flatMap(\.entries)
+            .compactMap { entry -> String? in
+                guard case let .text(text, _) = entry else { return nil }
+                return text
+            }
+
+        #expect(!textLines.contains("GPT-5.3-Codex-Spark"))
+    }
+
+    @Test
+    func codexSparkSectionUsesFallbackAccountPlanWhenSnapshotPlanMissing() throws {
+        let suite = "MenuDescriptorKiloTests-codex-spark-fallback-plan"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+
+        let settings = SettingsStore(
+            userDefaults: defaults,
+            configStore: testConfigStore(suiteName: suite),
+            zaiTokenStore: NoopZaiTokenStore(),
+            syntheticTokenStore: NoopSyntheticTokenStore())
+        settings.statusChecksEnabled = false
+
+        let store = UsageStore(
+            fetcher: UsageFetcher(environment: [:]),
+            browserDetection: BrowserDetection(cacheTTL: 0),
+            settings: settings)
+        let snapshot = UsageSnapshot(
+            primary: RateWindow(usedPercent: 10, windowMinutes: 300, resetsAt: Date(), resetDescription: nil),
+            secondary: RateWindow(usedPercent: 20, windowMinutes: 10080, resetsAt: Date(), resetDescription: nil),
+            tertiary: RateWindow(usedPercent: 3, windowMinutes: 300, resetsAt: Date(), resetDescription: nil),
+            quaternary: RateWindow(usedPercent: 17, windowMinutes: 10080, resetsAt: Date(), resetDescription: nil),
+            updatedAt: Date(),
+            identity: ProviderIdentitySnapshot(
+                providerID: .codex,
+                accountEmail: nil,
+                accountOrganization: nil,
+                loginMethod: nil))
+        store._setSnapshotForTesting(snapshot, provider: .codex)
+
+        let descriptor = MenuDescriptor.build(
+            provider: .codex,
+            store: store,
+            settings: settings,
+            account: AccountInfo(email: "codex@example.com", plan: "Pro"),
+            updateReady: false,
+            includeContextualActions: false)
+
+        let textLines = descriptor.sections
+            .flatMap(\.entries)
+            .compactMap { entry -> String? in
+                guard case let .text(text, _) = entry else { return nil }
+                return text
+            }
+
+        #expect(textLines.contains("GPT-5.3-Codex-Spark"))
+        #expect(textLines.contains { $0.hasPrefix("Session:") })
+        #expect(textLines.contains { $0.hasPrefix("Weekly:") })
+    }
 }

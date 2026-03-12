@@ -246,6 +246,52 @@ struct CLISnapshotTests {
     }
 
     @Test
+    func rendersSparkSectionWhenCodexAccountPlanFallbackIsPro() {
+        let now = Date()
+        let snap = UsageSnapshot(
+            primary: .init(
+                usedPercent: 22,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(300),
+                resetDescription: nil),
+            secondary: .init(
+                usedPercent: 40,
+                windowMinutes: 10080,
+                resetsAt: now.addingTimeInterval(600),
+                resetDescription: nil),
+            tertiary: .init(
+                usedPercent: 3,
+                windowMinutes: 300,
+                resetsAt: now.addingTimeInterval(900),
+                resetDescription: nil),
+            quaternary: .init(
+                usedPercent: 17,
+                windowMinutes: 10080,
+                resetsAt: now.addingTimeInterval(1200),
+                resetDescription: nil),
+            updatedAt: now,
+            identity: ProviderIdentitySnapshot(
+                providerID: .codex,
+                accountEmail: "codex@example.com",
+                accountOrganization: nil,
+                loginMethod: nil))
+
+        let output = CLIRenderer.renderText(
+            provider: .codex,
+            snapshot: snap,
+            credits: nil,
+            accountInfo: AccountInfo(email: "codex@example.com", plan: "Pro"),
+            context: RenderContext(
+                header: "Codex 0.0.0 (codex-cli)",
+                status: nil,
+                useColor: false,
+                resetStyle: .countdown))
+
+        #expect(output.contains("GPT-5.3-Codex-Spark"))
+        #expect(output.contains("Plan: Pro"))
+    }
+
+    @Test
     func rendersJSONPayload() throws {
         let snap = UsageSnapshot(
             primary: .init(usedPercent: 50, windowMinutes: 300, resetsAt: nil, resetDescription: nil),

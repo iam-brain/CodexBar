@@ -439,7 +439,9 @@ extension StatusItemController {
         }
 
         guard let model = self.menuCardModel(for: context.selectedProvider) else { return false }
-        if context.openAIContext.hasOpenAIWebMenuItems {
+        let shouldUseSectionedCodexMenu = context.currentProvider == .codex
+            && UsageMenuCardView.sparkMetricGroup(provider: context.currentProvider, metrics: model.metrics) != nil
+        if shouldUseSectionedCodexMenu || context.openAIContext.hasOpenAIWebMenuItems {
             let webItems = OpenAIWebMenuItems(
                 hasUsageBreakdown: context.openAIContext.hasUsageBreakdown,
                 hasCreditsHistory: context.openAIContext.hasCreditsHistory,
@@ -841,7 +843,10 @@ extension StatusItemController {
         width: CGFloat,
         webItems: OpenAIWebMenuItems)
     {
-        let hasUsageBlock = !model.metrics.isEmpty || model.placeholder != nil
+        let primaryMetricGroup = UsageMenuCardView.primaryMetricGroup(provider: provider, metrics: model.metrics)
+        let sparkMetricGroup = UsageMenuCardView.sparkMetricGroup(provider: provider, metrics: model.metrics)
+        let hasUsageBlock = primaryMetricGroup != nil || !model.usageNotes.isEmpty || model.placeholder != nil
+        let hasSparkBlock = sparkMetricGroup != nil
         let hasCredits = model.creditsText != nil
         let hasExtraUsage = model.providerCost != nil
         let hasCost = model.tokenUsage != nil
@@ -852,16 +857,20 @@ extension StatusItemController {
 
         let headerView = UsageMenuCardHeaderSectionView(
             model: model,
-            showDivider: hasUsageBlock,
+            showDivider: hasUsageBlock || hasSparkBlock,
             width: width)
         menu.addItem(self.makeMenuCardItem(headerView, id: "menuCardHeader", width: width))
 
         if hasUsageBlock {
-            let usageView = UsageMenuCardUsageSectionView(
-                model: model,
-                showBottomDivider: false,
+            let usageView = UsageMenuCardMetricGroupSectionView(
+                provider: provider,
+                group: primaryMetricGroup ?? .init(id: "primary", title: nil, metrics: []),
+                usageNotes: model.usageNotes,
+                placeholder: model.placeholder,
+                topPadding: 10,
                 bottomPadding: usageBottomPadding,
-                width: width)
+                width: width,
+                progressColor: model.progressColor)
             let usageSubmenu = self.makeUsageSubmenu(
                 provider: provider,
                 snapshot: self.store.snapshot(for: provider),
@@ -873,14 +882,30 @@ extension StatusItemController {
                 submenu: usageSubmenu))
         }
 
+        if let sparkMetricGroup {
+            if hasUsageBlock {
+                menu.addItem(.separator())
+            }
+            let sparkView = UsageMenuCardMetricGroupSectionView(
+                provider: provider,
+                group: sparkMetricGroup,
+                usageNotes: [],
+                placeholder: nil,
+                topPadding: sectionSpacing,
+                bottomPadding: bottomPadding,
+                width: width,
+                progressColor: model.progressColor)
+            menu.addItem(self.makeMenuCardItem(
+                sparkView,
+                id: "menuCardSpark",
+                width: width))
+        }
+
         if hasCredits || hasExtraUsage || hasCost {
             menu.addItem(.separator())
         }
 
         if hasCredits {
-            if hasExtraUsage || hasCost {
-                menu.addItem(.separator())
-            }
             let creditsView = UsageMenuCardCreditsSectionView(
                 model: model,
                 showBottomDivider: false,
@@ -897,10 +922,10 @@ extension StatusItemController {
                 menu.addItem(self.makeBuyCreditsItem())
             }
         }
+        if hasCredits, hasExtraUsage || hasCost {
+            menu.addItem(.separator())
+        }
         if hasExtraUsage {
-            if hasCredits {
-                menu.addItem(.separator())
-            }
             let extraUsageView = UsageMenuCardExtraUsageSectionView(
                 model: model,
                 topPadding: sectionSpacing,
@@ -911,10 +936,10 @@ extension StatusItemController {
                 id: "menuCardExtraUsage",
                 width: width))
         }
+        if hasExtraUsage, hasCost {
+            menu.addItem(.separator())
+        }
         if hasCost {
-            if hasCredits || hasExtraUsage {
-                menu.addItem(.separator())
-            }
             let costView = UsageMenuCardCostSectionView(
                 model: model,
                 topPadding: sectionSpacing,

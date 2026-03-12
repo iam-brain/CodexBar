@@ -317,6 +317,7 @@ extension CodexBarCLI {
                     provider: provider,
                     snapshot: usage,
                     credits: result.credits,
+                    accountInfo: provider == .codex ? command.fetcher.loadAccountInfo() : nil,
                     context: RenderContext(
                         header: header,
                         status: status,

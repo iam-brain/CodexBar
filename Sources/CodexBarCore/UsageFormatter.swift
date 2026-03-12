@@ -203,6 +203,12 @@ public enum UsageFormatter {
             cleaned.removeSubrange(trailing)
         }
 
+        let lower = cleaned.lowercased()
+        if let sparkRange = lower.range(of: "-codex-spark"), lower.hasPrefix("gpt-") {
+            let version = lower[lower.index(lower.startIndex, offsetBy: "gpt-".count)..<sparkRange.lowerBound]
+            return "GPT-\(version) Spark"
+        }
+
         return cleaned.isEmpty ? raw : cleaned
     }
 
@@ -232,5 +238,12 @@ public enum UsageFormatter {
             return cleaned.prefix(1).uppercased() + cleaned.dropFirst()
         }
         return cleaned
+    }
+
+    public static func isProPlan(_ text: String?) -> Bool {
+        guard let text else { return false }
+        let cleaned = self.cleanPlanName(text)
+        guard !cleaned.isEmpty else { return false }
+        return cleaned.range(of: #"\bpro\b"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 }

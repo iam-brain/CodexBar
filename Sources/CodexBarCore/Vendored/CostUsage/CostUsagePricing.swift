@@ -169,6 +169,9 @@ enum CostUsagePricing {
         if trimmed.hasPrefix("openai/") {
             trimmed = String(trimmed.dropFirst("openai/".count))
         }
+        if trimmed.lowercased().contains("-codex-spark") {
+            return trimmed
+        }
         if let codexRange = trimmed.range(of: "-codex") {
             let base = String(trimmed[..<codexRange.lowerBound])
             if self.codex[base] != nil { return base }
