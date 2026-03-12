@@ -167,7 +167,7 @@ struct MenuDescriptorKiloTests {
     }
 
     @Test
-    func codexSparkSectionOnlyRendersForProPlan() throws {
+    func codexSparkSectionRendersWhenSparkWindowsExistEvenWithoutProPlan() throws {
         let suite = "MenuDescriptorKiloTests-codex-spark-pro"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
@@ -211,7 +211,7 @@ struct MenuDescriptorKiloTests {
                 return text
             }
 
-        #expect(!textLines.contains("GPT-5.3-Codex-Spark"))
+        #expect(textLines.contains("GPT-5.3-Codex-Spark"))
     }
 
     @Test

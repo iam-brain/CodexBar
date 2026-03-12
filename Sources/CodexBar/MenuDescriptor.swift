@@ -253,6 +253,9 @@ struct MenuDescriptor {
         metadata: ProviderMetadata,
         account: AccountInfo) -> Bool
     {
+        if snapshot.tertiary != nil || snapshot.quaternary != nil {
+            return true
+        }
         let fallbackPlan: String? = if metadata.usesAccountFallback {
             account.plan
         } else {

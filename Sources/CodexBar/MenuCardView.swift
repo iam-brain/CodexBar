@@ -1167,6 +1167,9 @@ extension UsageMenuCardView.Model {
 
     private static func shouldShowCodexSpark(input: Input) -> Bool {
         guard input.provider == .codex else { return true }
+        if input.snapshot?.tertiary != nil || input.snapshot?.quaternary != nil {
+            return true
+        }
         let plan = self.plan(
             for: input.provider,
             snapshot: input.snapshot,

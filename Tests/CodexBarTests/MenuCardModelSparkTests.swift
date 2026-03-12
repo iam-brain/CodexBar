@@ -78,7 +78,7 @@ struct MenuCardModelSparkTests {
 
     @Test
     @MainActor
-    func hidesSparkMetricsForNonProCodexPlans() throws {
+    func showsSparkMetricsWhenWindowsExistEvenWithoutProPlanMetadata() throws {
         let now = Date()
         let metadata = try #require(ProviderDefaults.metadata[.codex])
         let snapshot = UsageSnapshot(
@@ -113,7 +113,8 @@ struct MenuCardModelSparkTests {
             hidePersonalInfo: false,
             now: now))
 
-        #expect(model.metrics.count == 2)
-        #expect(UsageMenuCardView.sparkMetricGroup(provider: .codex, metrics: model.metrics) == nil)
+        #expect(model.metrics.count == 4)
+        let sparkGroup = try #require(UsageMenuCardView.sparkMetricGroup(provider: .codex, metrics: model.metrics))
+        #expect(sparkGroup.metrics.map(\.id) == ["tertiary", "quaternary"])
     }
 }

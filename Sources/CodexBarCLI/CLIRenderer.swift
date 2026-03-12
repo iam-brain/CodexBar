@@ -124,8 +124,10 @@ enum CLIRenderer {
         lines: inout [String])
     {
         let metadata = ProviderDescriptorRegistry.descriptor(for: provider).metadata
-        let showCodexSpark = provider != .codex || UsageFormatter.isProPlan(
-            self.codexPlan(snapshot: snapshot, accountInfo: accountInfo))
+        let showCodexSpark = self.shouldShowCodexSpark(
+            provider: provider,
+            snapshot: snapshot,
+            accountInfo: accountInfo)
 
         if let tertiary = snapshot.tertiary, metadata.supportsOpus, showCodexSpark {
             if provider == .codex {
@@ -434,6 +436,18 @@ enum CLIRenderer {
 
     private static func codexPlan(snapshot: UsageSnapshot, accountInfo: AccountInfo?) -> String? {
         self.plan(provider: .codex, snapshot: snapshot, accountInfo: accountInfo)
+    }
+
+    private static func shouldShowCodexSpark(
+        provider: UsageProvider,
+        snapshot: UsageSnapshot,
+        accountInfo: AccountInfo?) -> Bool
+    {
+        guard provider == .codex else { return true }
+        if snapshot.tertiary != nil || snapshot.quaternary != nil {
+            return true
+        }
+        return UsageFormatter.isProPlan(self.codexPlan(snapshot: snapshot, accountInfo: accountInfo))
     }
 }
 

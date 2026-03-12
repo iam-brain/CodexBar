@@ -377,9 +377,7 @@ enum CostUsageScanner {
             let normalizedFeature = meteredFeature
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            if normalizedFeature == "codex_bengalfox"
-                || meteredFeature.localizedCaseInsensitiveContains("spark")
-            {
+            if normalizedFeature == "codex_bengalfox" {
                 return "gpt-5.3-codex-spark"
             }
         }
