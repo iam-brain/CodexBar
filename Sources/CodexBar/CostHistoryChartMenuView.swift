@@ -10,11 +10,13 @@ struct CostHistoryChartMenuView: View {
         let id: String
         let date: Date
         let costUSD: Double
+        let actualCostUSD: Double?
         let totalTokens: Int?
 
-        init(date: Date, costUSD: Double, totalTokens: Int?) {
+        init(date: Date, costUSD: Double, actualCostUSD: Double?, totalTokens: Int?) {
             self.date = date
             self.costUSD = costUSD
+            self.actualCostUSD = actualCostUSD
             self.totalTokens = totalTokens
             self.id = "\(Int(date.timeIntervalSince1970))-\(costUSD)"
         }
@@ -178,37 +180,66 @@ struct CostHistoryChartMenuView: View {
     }
 
     private static func makeModel(provider: UsageProvider, daily: [DailyEntry]) -> Model {
+        self.makeModel(provider: provider, daily: daily, now: Date())
+    }
+
+    private static func makeModel(provider: UsageProvider, daily: [DailyEntry], now: Date) -> Model {
         let sorted = daily.sorted { lhs, rhs in lhs.date < rhs.date }
+        if sorted.isEmpty {
+            let barColor = Self.barColor(for: provider)
+            return Model(
+                points: [],
+                pointsByDateKey: [:],
+                entriesByDateKey: [:],
+                dateKeys: [],
+                axisDates: [],
+                barColor: barColor,
+                peakKey: nil,
+                maxCostUSD: 0,
+                maxRenderedBreakdownRows: 0)
+        }
+
+        let dayRange = Self.rollingDayKeys(endingAt: now)
         var points: [Point] = []
-        points.reserveCapacity(sorted.count)
+        points.reserveCapacity(dayRange.count)
 
         var pointsByKey: [String: Point] = [:]
-        pointsByKey.reserveCapacity(sorted.count)
+        pointsByKey.reserveCapacity(dayRange.count)
 
         var entriesByKey: [String: DailyEntry] = [:]
         entriesByKey.reserveCapacity(sorted.count)
+        for entry in sorted {
+            entriesByKey[entry.date] = entry
+        }
 
         var dateKeys: [(key: String, date: Date)] = []
-        dateKeys.reserveCapacity(sorted.count)
+        dateKeys.reserveCapacity(dayRange.count)
 
         var peak: (key: String, costUSD: Double)?
         var maxCostUSD: Double = 0
         var maxRenderedBreakdownRows = 0
-        for entry in sorted {
-            guard let costUSD = entry.costUSD, costUSD >= 0 else { continue }
-            guard let date = self.dateFromDayKey(entry.date) else { continue }
-            let point = Point(date: date, costUSD: costUSD, totalTokens: entry.totalTokens)
+        for item in dayRange {
+            let entry = entriesByKey[item.key]
+            let costUSD = Self.displayCostUSD(for: entry)
+            let point = Point(
+                date: item.date,
+                costUSD: costUSD,
+                actualCostUSD: entry?.costUSD,
+                totalTokens: entry?.totalTokens)
             points.append(point)
-            pointsByKey[entry.date] = point
-            entriesByKey[entry.date] = entry
-            dateKeys.append((entry.date, date))
-            maxRenderedBreakdownRows = max(maxRenderedBreakdownRows, Self.renderedBreakdownRowCount(for: entry))
-            if let cur = peak {
-                if costUSD > cur.costUSD { peak = (entry.date, costUSD) }
-            } else {
-                peak = (entry.date, costUSD)
+            pointsByKey[item.key] = point
+            dateKeys.append((item.key, item.date))
+            if let entry {
+                maxRenderedBreakdownRows = max(maxRenderedBreakdownRows, Self.renderedBreakdownRowCount(for: entry))
             }
-            maxCostUSD = max(maxCostUSD, costUSD)
+            if costUSD > 0 {
+                if let cur = peak {
+                    if costUSD > cur.costUSD { peak = (item.key, costUSD) }
+                } else {
+                    peak = (item.key, costUSD)
+                }
+                maxCostUSD = max(maxCostUSD, costUSD)
+            }
         }
 
         let axisDates: [Date] = {
@@ -252,9 +283,47 @@ struct CostHistoryChartMenuView: View {
         return comps.date
     }
 
+    private static func rollingDayKeys(endingAt now: Date) -> [(key: String, date: Date)] {
+        var days: [(key: String, date: Date)] = []
+        let calendar = Calendar.current
+        let end = calendar.startOfDay(for: now)
+        let start = calendar.date(byAdding: .day, value: -29, to: end) ?? end
+        var current = start
+
+        while current <= end {
+            let comps = calendar.dateComponents([.year, .month, .day], from: current)
+            let key = String(format: "%04d-%02d-%02d", comps.year ?? 1970, comps.month ?? 1, comps.day ?? 1)
+            let date = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: current) ?? current
+            days.append((key, date))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+
+        return days
+    }
+
     private static func peakPoint(model: Model) -> Point? {
         guard let key = model.peakKey else { return nil }
         return model.pointsByDateKey[key]
+    }
+
+    private static func displayCostUSD(for entry: DailyEntry?) -> Double {
+        guard let entry else { return 0 }
+        if let costUSD = entry.costUSD, costUSD > 0 {
+            return costUSD
+        }
+        if let breakdown = entry.modelBreakdowns {
+            let subtotal = breakdown.reduce(0.0) { partial, item in
+                partial + max(0, item.costUSD ?? 0)
+            }
+            if subtotal > 0 {
+                return subtotal
+            }
+        }
+        if (entry.totalTokens ?? 0) > 0 {
+            return 0
+        }
+        return 0
     }
 
     private static func renderedBreakdownRowCount(for entry: DailyEntry) -> Int {
@@ -356,11 +425,19 @@ struct CostHistoryChartMenuView: View {
         }
 
         let dayLabel = date.formatted(.dateTime.month(.abbreviated).day())
-        let cost = UsageFormatter.usdString(point.costUSD)
-        let primary = if let tokens = point.totalTokens {
-            "\(dayLabel): \(cost) · \(UsageFormatter.tokenCountString(tokens)) tokens"
+        let primaryBase = if let actualCostUSD = point.actualCostUSD, actualCostUSD > 0 {
+            "\(dayLabel): \(UsageFormatter.usdString(actualCostUSD))"
+        } else if point.costUSD > 0 {
+            "\(dayLabel): \(UsageFormatter.usdString(point.costUSD)) partial"
+        } else if (point.totalTokens ?? 0) > 0 {
+            "\(dayLabel): No priced cost data"
         } else {
-            "\(dayLabel): \(cost)"
+            "\(dayLabel): No cost data"
+        }
+        let primary = if let tokens = point.totalTokens {
+            "\(primaryBase) · \(UsageFormatter.tokenCountString(tokens)) tokens"
+        } else {
+            primaryBase
         }
         return DetailContent(primary: primary, rows: self.breakdownRows(key: key, model: model))
     }
@@ -421,10 +498,74 @@ struct CostHistoryChartMenuView: View {
         var parts: [String] = []
         if let costUSD, costUSD > 0 {
             parts.append(UsageFormatter.usdString(costUSD))
+        } else if totalTokens != nil {
+            parts.append("unpriced")
         }
         if let totalTokens, totalTokens > 0 {
             parts.append("\(UsageFormatter.tokenCountString(totalTokens)) tokens")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+extension CostHistoryChartMenuView {
+    enum TestSupport {
+        struct DayState: Equatable {
+            let dayKey: String
+            let costUSD: Double
+            let hasEntry: Bool
+        }
+
+        struct DetailSummary: Equatable {
+            let primary: String
+        }
+
+        @MainActor
+        static func makeDayStates(
+            provider: UsageProvider = .codex,
+            daily: [DailyEntry],
+            now: Date) -> [DayState]
+        {
+            let model = CostHistoryChartMenuView.makeModel(provider: provider, daily: daily, now: now)
+            return model.dateKeys.compactMap { item -> DayState? in
+                guard let point = model.pointsByDateKey[item.key] else { return nil }
+                return DayState(
+                    dayKey: item.key,
+                    costUSD: point.costUSD,
+                    hasEntry: model.entriesByDateKey[item.key] != nil)
+            }
+        }
+
+        @MainActor
+        static func detailSummary(
+            selectedDateKey: String,
+            provider: UsageProvider = .codex,
+            daily: [DailyEntry]) -> DetailSummary
+        {
+            let now = CostHistoryChartMenuView.dateFromDayKey(selectedDateKey) ?? Date()
+            let model = CostHistoryChartMenuView.makeModel(provider: provider, daily: daily, now: now)
+            guard let point = model.pointsByDateKey[selectedDateKey],
+                  let date = CostHistoryChartMenuView.dateFromDayKey(selectedDateKey)
+            else {
+                return DetailSummary(primary: "Hover a bar for details")
+            }
+
+            let dayLabel = date.formatted(.dateTime.month(.abbreviated).day())
+            let primaryBase = if let actualCostUSD = point.actualCostUSD, actualCostUSD > 0 {
+                "\(dayLabel): \(UsageFormatter.usdString(actualCostUSD))"
+            } else if point.costUSD > 0 {
+                "\(dayLabel): \(UsageFormatter.usdString(point.costUSD)) partial"
+            } else if (point.totalTokens ?? 0) > 0 {
+                "\(dayLabel): No priced cost data"
+            } else {
+                "\(dayLabel): No cost data"
+            }
+            let primary = if let tokens = point.totalTokens {
+                "\(primaryBase) · \(UsageFormatter.tokenCountString(tokens)) tokens"
+            } else {
+                primaryBase
+            }
+            return DetailSummary(primary: primary)
+        }
     }
 }

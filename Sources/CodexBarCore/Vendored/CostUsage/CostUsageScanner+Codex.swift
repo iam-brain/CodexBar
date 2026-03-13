@@ -23,6 +23,13 @@ private struct CostUsageScannerCodexParseState {
 }
 
 extension CostUsageScanner {
+    private static let codexSessionMetaModelRegex = try? NSRegularExpression(
+        pattern: #"GPT-([0-9]+(?:\.[0-9]+)?)(?:\s+(Codex|Mini|Nano|Pro))?(?:\s+(Max|Mini))?"#,
+        options: [.caseInsensitive])
+    private static let codexImplicitContextRegex = try? NSRegularExpression(
+        pattern: #"Codex(?:\s+CLI)?"#,
+        options: [.caseInsensitive])
+
     private static func regexCapture(_ pattern: String, in text: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
@@ -125,6 +132,58 @@ extension CostUsageScanner {
             lastUsage: lastUsage)
     }
 
+    private static func codexModelFromSessionMeta(payload: [String: Any]?) -> String? {
+        guard let payload else { return nil }
+        if let model = payload["model"] as? String {
+            return model
+        }
+        if let baseInstructions = (payload["base_instructions"] as? [String: Any])?["text"] as? String {
+            return Self.codexModelFromInstructions(baseInstructions)
+        }
+        return nil
+    }
+
+    private static func codexModelFromInstructions(_ text: String) -> String? {
+        guard let regex = self.codexSessionMetaModelRegex else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range) else { return nil }
+        guard let versionRange = Range(match.range(at: 1), in: text) else { return nil }
+
+        let version = text[versionRange].lowercased()
+        var model = "gpt-\(version)"
+        let primaryTier = Range(match.range(at: 2), in: text).map { text[$0].lowercased() }
+        let secondaryTier = Range(match.range(at: 3), in: text).map { text[$0].lowercased() }
+
+        switch primaryTier {
+        case "codex":
+            model += "-codex"
+            if let secondaryTier {
+                model += "-\(secondaryTier)"
+            }
+        case "mini", "nano", "pro":
+            if let primaryTier {
+                model += "-\(primaryTier)"
+            }
+        default:
+            if let regex = self.codexImplicitContextRegex {
+                let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+                if regex.firstMatch(in: text, range: fullRange) != nil {
+                    let codexModel = "\(model)-codex"
+                    if CostUsagePricing.codexCostUSD(
+                        model: codexModel,
+                        inputTokens: 1,
+                        cachedInputTokens: 0,
+                        outputTokens: 0) != nil
+                    {
+                        model = codexModel
+                    }
+                }
+            }
+        }
+
+        return model
+    }
+
     private static func shouldInspectCodexLine(_ line: CostUsageJsonl.Line) -> Bool {
         if line.bytes.isEmpty { return false }
         let hasRelevantType = line.bytes.containsAscii(#""type":"event_msg""#)
@@ -167,7 +226,7 @@ extension CostUsageScanner {
             state.currentModel = explicitModel
         }
 
-        let model = usage.explicitModel ?? state.currentModel ?? "gpt-5"
+        let model = usage.explicitModel ?? state.currentModel ?? "unknown"
         var deltaInput = 0
         var deltaCached = 0
         var deltaOutput = 0
@@ -210,6 +269,9 @@ extension CostUsageScanner {
             if state.sessionId == nil {
                 state.sessionId = recovered.sessionId
             }
+            if state.currentModel == nil, let model = recovered.model {
+                state.currentModel = model
+            }
             return
         }
 
@@ -247,14 +309,17 @@ extension CostUsageScanner {
         else { return }
 
         if type == "session_meta" {
+            let payload = obj["payload"] as? [String: Any]
             if state.sessionId == nil {
-                let payload = obj["payload"] as? [String: Any]
                 state.sessionId = payload?["session_id"] as? String
                     ?? payload?["sessionId"] as? String
                     ?? payload?["id"] as? String
                     ?? obj["session_id"] as? String
                     ?? obj["sessionId"] as? String
                     ?? obj["id"] as? String
+            }
+            if state.currentModel == nil {
+                state.currentModel = Self.codexModelFromSessionMeta(payload: payload)
             }
             return
         }
