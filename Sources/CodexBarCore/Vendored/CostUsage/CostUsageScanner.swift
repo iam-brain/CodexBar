@@ -401,6 +401,7 @@ enum CostUsageScanner {
         var totalTokens = 0
         var totalCost: Double = 0
         var costSeen = false
+        var hasUnknownCost = false
 
         let dayKeys = cache.days.keys.sorted().filter {
             CostUsageDayRange.isInRange(dayKey: $0, since: range.sinceKey, until: range.untilKey)
@@ -416,6 +417,7 @@ enum CostUsageScanner {
             var breakdown: [CostUsageDailyReport.ModelBreakdown] = []
             var dayCost: Double = 0
             var dayCostSeen = false
+            var dayHasUnknownCost = false
 
             for model in modelNames {
                 let packed = models[model] ?? [0, 0, 0]
@@ -439,6 +441,8 @@ enum CostUsageScanner {
                 if let cost {
                     dayCost += cost
                     dayCostSeen = true
+                } else if modelTotal > 0 || cached > 0 {
+                    dayHasUnknownCost = true
                 }
             }
 
@@ -453,7 +457,7 @@ enum CostUsageScanner {
             }
 
             let dayTotal = dayInput + dayOutput
-            let entryCost = dayCostSeen ? dayCost : nil
+            let entryCost = dayCostSeen && !dayHasUnknownCost ? dayCost : nil
             entries.append(CostUsageDailyReport.Entry(
                 date: day,
                 inputTokens: dayInput,
@@ -466,6 +470,9 @@ enum CostUsageScanner {
             totalInput += dayInput
             totalOutput += dayOutput
             totalTokens += dayTotal
+            if dayHasUnknownCost {
+                hasUnknownCost = true
+            }
             if let entryCost {
                 totalCost += entryCost
                 costSeen = true
@@ -478,7 +485,7 @@ enum CostUsageScanner {
                 totalInputTokens: totalInput,
                 totalOutputTokens: totalOutput,
                 totalTokens: totalTokens,
-                totalCostUSD: costSeen ? totalCost : nil)
+                totalCostUSD: costSeen && !hasUnknownCost ? totalCost : nil)
 
         return CostUsageDailyReport(data: entries, summary: summary)
     }

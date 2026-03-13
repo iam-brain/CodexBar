@@ -162,6 +162,7 @@ extension CodexBarCLI {
         var sawCacheCreation = false
         var sawTokens = false
         var sawCost = false
+        var hasUnknownCost = false
 
         for entry in entries {
             if let input = entry.inputTokens {
@@ -187,7 +188,17 @@ extension CodexBarCLI {
             if let cost = entry.costUSD {
                 totalCost += cost
                 sawCost = true
+            } else if (entry.totalTokens ?? 0) > 0 {
+                hasUnknownCost = true
             }
+        }
+
+        let aggregateCost: Double? = if hasUnknownCost {
+            nil
+        } else if sawCost {
+            totalCost
+        } else {
+            snapshot.last30DaysCostUSD
         }
 
         // Prefer totals derived from daily rows; fall back to snapshot aggregates when rows omit fields.
@@ -197,9 +208,21 @@ extension CodexBarCLI {
             cacheReadTokens: sawCacheRead ? totalCacheRead : nil,
             cacheCreationTokens: sawCacheCreation ? totalCacheCreation : nil,
             totalTokens: sawTokens ? totalTokens : snapshot.last30DaysTokens,
-            totalCostUSD: sawCost ? totalCost : snapshot.last30DaysCostUSD)
+            totalCostUSD: aggregateCost)
     }
 }
+
+#if DEBUG
+extension CodexBarCLI {
+    static func _makeCostPayloadForTesting(
+        provider: UsageProvider,
+        snapshot: CostUsageTokenSnapshot?,
+        error: Error? = nil) -> CostPayload
+    {
+        self.makeCostPayload(provider: provider, snapshot: snapshot, error: error)
+    }
+}
+#endif
 
 struct CostOptions: CommanderParsable {
     @Flag(names: [.short("v"), .long("verbose")], help: "Enable verbose logging")

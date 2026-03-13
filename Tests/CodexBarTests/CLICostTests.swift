@@ -141,4 +141,37 @@ struct CLICostTests {
         #expect(!json.contains("\"gpt-5.2\""))
         #expect(json.contains("\"cost\":0"))
     }
+
+    @Test
+    func costPayloadPreservesNilAggregateCostForMixedKnownAndUnknownDays() {
+        let snapshot = CostUsageTokenSnapshot(
+            sessionTokens: 200,
+            sessionCostUSD: nil,
+            last30DaysTokens: 300,
+            last30DaysCostUSD: nil,
+            daily: [
+                CostUsageDailyReport.Entry(
+                    date: "2025-12-20",
+                    inputTokens: 10,
+                    outputTokens: 5,
+                    totalTokens: 15,
+                    costUSD: 0.01,
+                    modelsUsed: ["gpt-5.2-codex"],
+                    modelBreakdowns: nil),
+                CostUsageDailyReport.Entry(
+                    date: "2025-12-21",
+                    inputTokens: 20,
+                    outputTokens: 10,
+                    totalTokens: 30,
+                    costUSD: nil,
+                    modelsUsed: ["unknown"],
+                    modelBreakdowns: nil),
+            ],
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+
+        let payload = CodexBarCLI._makeCostPayloadForTesting(provider: .codex, snapshot: snapshot)
+
+        #expect(payload.totals?.totalTokens == 45)
+        #expect(payload.totals?.totalCostUSD == nil)
+    }
 }

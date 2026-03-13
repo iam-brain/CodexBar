@@ -167,7 +167,7 @@ extension CostUsageScanner {
             state.currentModel = explicitModel
         }
 
-        let model = usage.explicitModel ?? state.currentModel ?? "gpt-5"
+        let model = usage.explicitModel ?? state.currentModel ?? "unknown"
         var deltaInput = 0
         var deltaCached = 0
         var deltaOutput = 0
