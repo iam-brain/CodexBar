@@ -18,18 +18,16 @@ struct CostUsageModelBreakdownTests {
             ("openai/gpt-4.1", 10, 0, 1),
         ]
 
-        var events: [[String: Any]] = []
         for (index, model) in models.enumerated() {
             let turnTimestamp = env.isoString(for: day.addingTimeInterval(TimeInterval(index * 2)))
             let tokenTimestamp = env.isoString(for: day.addingTimeInterval(TimeInterval((index * 2) + 1)))
-            events.append([
+            let events: [[String: Any]] = [[
                 "type": "turn_context",
                 "timestamp": turnTimestamp,
                 "payload": [
                     "model": model.raw,
                 ],
-            ])
-            events.append([
+            ], [
                 "type": "event_msg",
                 "timestamp": tokenTimestamp,
                 "payload": [
@@ -43,13 +41,13 @@ struct CostUsageModelBreakdownTests {
                         "model": model.raw,
                     ],
                 ],
-            ])
-        }
+            ]]
 
-        _ = try env.writeCodexSessionFile(
-            day: day,
-            filename: "breakdowns.jsonl",
-            contents: env.jsonl(events))
+            _ = try env.writeCodexSessionFile(
+                day: day,
+                filename: "breakdowns-\(index).jsonl",
+                contents: env.jsonl(events))
+        }
 
         var options = CostUsageScanner.Options(
             codexSessionsRoot: env.codexSessionsRoot,

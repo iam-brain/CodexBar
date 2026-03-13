@@ -58,7 +58,10 @@ struct CostUsageScannerTests {
         #expect(first.data.count == 1)
         #expect(first.data[0].modelsUsed == ["gpt-5.2-codex"])
         #expect(first.data[0].modelBreakdowns == [
-            CostUsageDailyReport.ModelBreakdown(modelName: "gpt-5.2-codex", costUSD: first.data[0].costUSD),
+            CostUsageDailyReport.ModelBreakdown(
+                modelName: "gpt-5.2-codex",
+                costUSD: first.data[0].costUSD,
+                totalTokens: 110),
         ])
         #expect(first.data[0].totalTokens == 110)
         #expect((first.data[0].costUSD ?? 0) > 0)
