@@ -157,6 +157,42 @@ struct CodexOAuthTests {
     }
 
     @Test
+    func doesNotSynthesizeBaseWindowForSparkOnlyOAuthResponse() throws {
+        let json = """
+        {
+          "additional_rate_limits": [
+            {
+              "limit_name": "GPT-5.3-Codex-Spark",
+              "metered_feature": "codex_bengalfox",
+              "rate_limit": {
+                "primary_window": {
+                  "used_percent": 3,
+                  "reset_at": 1766948068,
+                  "limit_window_seconds": 18000
+                },
+                "secondary_window": {
+                  "used_percent": 17,
+                  "reset_at": 1767407914,
+                  "limit_window_seconds": 604800
+                }
+              }
+            }
+          ]
+        }
+        """
+        let creds = CodexOAuthCredentials(
+            accessToken: "access",
+            refreshToken: "refresh",
+            idToken: nil,
+            accountId: nil,
+            lastRefresh: Date())
+        let snapshot = try CodexOAuthFetchStrategy._mapUsageForTesting(Data(json.utf8), credentials: creds)
+        #expect(snapshot.primary == nil)
+        #expect(snapshot.secondary == nil)
+        #expect(snapshot.usageBucketGroups.count == 1)
+    }
+
+    @Test
     func ignoresUnrelatedOAuthAdditionalRateLimitsWhenSparkAbsent() throws {
         let json = """
         {

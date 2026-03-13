@@ -165,6 +165,9 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
         let primary = Self.makeWindow(response.rateLimit?.primaryWindow)
         let secondary = Self.makeWindow(response.rateLimit?.secondaryWindow)
         let usageBucketGroups = Self.makeUsageBucketGroups(response.additionalRateLimits)
+        let fallbackPrimary = usageBucketGroups.isEmpty
+            ? RateWindow(usedPercent: 0, windowMinutes: nil, resetsAt: nil, resetDescription: nil)
+            : nil
 
         let identity = ProviderIdentitySnapshot(
             providerID: .codex,
@@ -173,7 +176,7 @@ struct CodexOAuthFetchStrategy: ProviderFetchStrategy {
             loginMethod: Self.resolvePlan(response: response, credentials: credentials))
 
         return UsageSnapshot(
-            primary: primary ?? RateWindow(usedPercent: 0, windowMinutes: nil, resetsAt: nil, resetDescription: nil),
+            primary: primary ?? fallbackPrimary,
             secondary: secondary,
             tertiary: nil,
             usageBucketGroups: usageBucketGroups,
