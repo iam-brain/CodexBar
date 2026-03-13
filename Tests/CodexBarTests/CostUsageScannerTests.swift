@@ -56,7 +56,10 @@ struct CostUsageScannerTests {
             now: day,
             options: options)
         #expect(first.data.count == 1)
-        #expect(first.data[0].modelsUsed == ["gpt-5.2"])
+        #expect(first.data[0].modelsUsed == ["gpt-5.2-codex"])
+        #expect(first.data[0].modelBreakdowns == [
+            CostUsageDailyReport.ModelBreakdown(modelName: "gpt-5.2-codex", costUSD: first.data[0].costUSD),
+        ])
         #expect(first.data[0].totalTokens == 110)
         #expect((first.data[0].costUSD ?? 0) > 0)
 
@@ -85,6 +88,7 @@ struct CostUsageScannerTests {
             now: day,
             options: options)
         #expect(second.data.count == 1)
+        #expect(second.data[0].modelsUsed == ["gpt-5.2-codex"])
         #expect(second.data[0].totalTokens == 176)
         #expect((second.data[0].costUSD ?? 0) > (first.data[0].costUSD ?? 0))
     }
@@ -476,6 +480,7 @@ struct CostUsageScannerTests {
 
         let model = "openai/gpt-5.2-codex"
         let normalized = CostUsagePricing.normalizeCodexModel(model)
+        #expect(normalized == "gpt-5.2-codex")
         let turnContext: [String: Any] = [
             "type": "turn_context",
             "timestamp": iso0,
@@ -838,7 +843,6 @@ struct CostUsageScannerTests {
         #expect(report.data[0].outputTokens == 15)
         #expect(report.data[0].totalTokens == 45)
     }
-
     @Test
     func jsonlScannerHandlesLinesAcrossReadChunks() throws {
         let env = try CostUsageTestEnvironment()
