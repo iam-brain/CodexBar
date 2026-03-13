@@ -27,10 +27,25 @@ enum CostUsagePricing {
             outputCostPerToken: 1e-5,
             cacheReadInputCostPerToken: 1.25e-7,
             displayLabel: nil),
+        "gpt-5-chat": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5-chat-latest": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
         "gpt-5-codex": CodexPricing(
             inputCostPerToken: 1.25e-6,
             outputCostPerToken: 1e-5,
             cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5-codex-mini": CodexPricing(
+            inputCostPerToken: 2.5e-7,
+            outputCostPerToken: 2e-6,
+            cacheReadInputCostPerToken: 2.5e-8,
             displayLabel: nil),
         "gpt-5-mini": CodexPricing(
             inputCostPerToken: 2.5e-7,
@@ -48,6 +63,11 @@ enum CostUsagePricing {
             cacheReadInputCostPerToken: nil,
             displayLabel: nil),
         "gpt-5.1": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5.1-chat-latest": CodexPricing(
             inputCostPerToken: 1.25e-6,
             outputCostPerToken: 1e-5,
             cacheReadInputCostPerToken: 1.25e-7,
@@ -72,6 +92,16 @@ enum CostUsagePricing {
             outputCostPerToken: 1.4e-5,
             cacheReadInputCostPerToken: 1.75e-7,
             displayLabel: nil),
+        "gpt-5.2-chat": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
+        "gpt-5.2-chat-latest": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
         "gpt-5.2-codex": CodexPricing(
             inputCostPerToken: 1.75e-6,
             outputCostPerToken: 1.4e-5,
@@ -83,6 +113,11 @@ enum CostUsagePricing {
             cacheReadInputCostPerToken: nil,
             displayLabel: nil),
         "gpt-5.3-codex": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
+        "gpt-5.3-chat-latest": CodexPricing(
             inputCostPerToken: 1.75e-6,
             outputCostPerToken: 1.4e-5,
             cacheReadInputCostPerToken: 1.75e-7,
@@ -275,7 +310,10 @@ enum CostUsagePricing {
         guard let pricing = self.codex[key] else { return nil }
         let cached = min(max(0, cachedInputTokens), max(0, inputTokens))
         let nonCached = max(0, inputTokens - cached)
-        let cachedRate = pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken
+        if cached > 0, pricing.cacheReadInputCostPerToken == nil {
+            return nil
+        }
+        let cachedRate = pricing.cacheReadInputCostPerToken ?? 0
         return Double(nonCached) * pricing.inputCostPerToken
             + Double(cached) * cachedRate
             + Double(max(0, outputTokens)) * pricing.outputCostPerToken

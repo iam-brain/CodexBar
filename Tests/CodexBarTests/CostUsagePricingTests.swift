@@ -46,6 +46,54 @@ struct CostUsagePricingTests {
     }
 
     @Test
+    func normalizesAdditionalCodexAliasesAndSnapshots() {
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5-chat") == "gpt-5-chat")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5-codex-mini") == "gpt-5-codex-mini")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5-mini-2025-10-06") == "gpt-5-mini")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5-pro-2025-10-06") == "gpt-5-pro")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5.2-chat") == "gpt-5.2-chat")
+        #expect(CostUsagePricing.normalizeCodexModel("gpt-5.3-chat-latest") == "gpt-5.3-chat-latest")
+    }
+
+    @Test
+    func codexCostSupportsAdditionalGpt5Aliases() {
+        #expect(CostUsagePricing.codexCostUSD(
+            model: "gpt-5-chat",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5) != nil)
+        #expect(CostUsagePricing.codexCostUSD(
+            model: "gpt-5-codex-mini",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5) != nil)
+        #expect(CostUsagePricing.codexCostUSD(
+            model: "gpt-5.2-chat",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5) != nil)
+        #expect(CostUsagePricing.codexCostUSD(
+            model: "gpt-5-mini-2025-10-06",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5) != nil)
+    }
+
+    @Test
+    func codexCostReturnsNilForProModelCachedReads() {
+        #expect(CostUsagePricing.codexCostUSD(
+            model: "gpt-5.2-pro",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5) == nil)
+        #expect(CostUsagePricing.codexCostUSD(
+            model: "gpt-5.4-pro",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5) == nil)
+    }
+
+    @Test
     func normalizesClaudeOpus41DatedVariants() {
         #expect(CostUsagePricing.normalizeClaudeModel("claude-opus-4-1-20250805") == "claude-opus-4-1")
     }
