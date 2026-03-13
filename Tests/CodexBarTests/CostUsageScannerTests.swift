@@ -843,6 +843,7 @@ struct CostUsageScannerTests {
         #expect(report.data[0].outputTokens == 15)
         #expect(report.data[0].totalTokens == 45)
     }
+
     @Test
     func jsonlScannerHandlesLinesAcrossReadChunks() throws {
         let env = try CostUsageTestEnvironment()
