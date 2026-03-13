@@ -5,7 +5,31 @@ enum CostUsagePricing {
         let inputCostPerToken: Double
         let outputCostPerToken: Double
         let cacheReadInputCostPerToken: Double?
+        let thresholdTokens: Int?
+        let inputCostPerTokenAboveThreshold: Double?
+        let outputCostPerTokenAboveThreshold: Double?
+        let cacheReadInputCostPerTokenAboveThreshold: Double?
         let displayLabel: String?
+
+        init(
+            inputCostPerToken: Double,
+            outputCostPerToken: Double,
+            cacheReadInputCostPerToken: Double?,
+            thresholdTokens: Int? = nil,
+            inputCostPerTokenAboveThreshold: Double? = nil,
+            outputCostPerTokenAboveThreshold: Double? = nil,
+            cacheReadInputCostPerTokenAboveThreshold: Double? = nil,
+            displayLabel: String? = nil)
+        {
+            self.inputCostPerToken = inputCostPerToken
+            self.outputCostPerToken = outputCostPerToken
+            self.cacheReadInputCostPerToken = cacheReadInputCostPerToken
+            self.thresholdTokens = thresholdTokens
+            self.inputCostPerTokenAboveThreshold = inputCostPerTokenAboveThreshold
+            self.outputCostPerTokenAboveThreshold = outputCostPerTokenAboveThreshold
+            self.cacheReadInputCostPerTokenAboveThreshold = cacheReadInputCostPerTokenAboveThreshold
+            self.displayLabel = displayLabel
+        }
     }
 
     struct ClaudePricing: Sendable {
@@ -27,10 +51,25 @@ enum CostUsagePricing {
             outputCostPerToken: 1e-5,
             cacheReadInputCostPerToken: 1.25e-7,
             displayLabel: nil),
+        "gpt-5-chat": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5-chat-latest": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
         "gpt-5-codex": CodexPricing(
             inputCostPerToken: 1.25e-6,
             outputCostPerToken: 1e-5,
             cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5-codex-mini": CodexPricing(
+            inputCostPerToken: 2.5e-7,
+            outputCostPerToken: 2e-6,
+            cacheReadInputCostPerToken: 2.5e-8,
             displayLabel: nil),
         "gpt-5-mini": CodexPricing(
             inputCostPerToken: 2.5e-7,
@@ -48,6 +87,11 @@ enum CostUsagePricing {
             cacheReadInputCostPerToken: nil,
             displayLabel: nil),
         "gpt-5.1": CodexPricing(
+            inputCostPerToken: 1.25e-6,
+            outputCostPerToken: 1e-5,
+            cacheReadInputCostPerToken: 1.25e-7,
+            displayLabel: nil),
+        "gpt-5.1-chat-latest": CodexPricing(
             inputCostPerToken: 1.25e-6,
             outputCostPerToken: 1e-5,
             cacheReadInputCostPerToken: 1.25e-7,
@@ -72,6 +116,16 @@ enum CostUsagePricing {
             outputCostPerToken: 1.4e-5,
             cacheReadInputCostPerToken: 1.75e-7,
             displayLabel: nil),
+        "gpt-5.2-chat": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
+        "gpt-5.2-chat-latest": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
         "gpt-5.2-codex": CodexPricing(
             inputCostPerToken: 1.75e-6,
             outputCostPerToken: 1.4e-5,
@@ -83,6 +137,16 @@ enum CostUsagePricing {
             cacheReadInputCostPerToken: nil,
             displayLabel: nil),
         "gpt-5.3-codex": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
+        "gpt-5.3": CodexPricing(
+            inputCostPerToken: 1.75e-6,
+            outputCostPerToken: 1.4e-5,
+            cacheReadInputCostPerToken: 1.75e-7,
+            displayLabel: nil),
+        "gpt-5.3-chat-latest": CodexPricing(
             inputCostPerToken: 1.75e-6,
             outputCostPerToken: 1.4e-5,
             cacheReadInputCostPerToken: 1.75e-7,
@@ -218,22 +282,44 @@ enum CostUsagePricing {
     ]
 
     static func normalizeCodexModel(_ raw: String) -> String {
+        var trimmed = self.displayCodexModel(raw)
+        if let snapshotBase = self.codexSnapshotBaseModel(trimmed) {
+            trimmed = snapshotBase
+        }
+        if self.codex[trimmed] != nil {
+            return trimmed
+        }
+        if let codexRange = trimmed.range(of: "-codex"), !trimmed.contains("-codex-mini") {
+            let base = String(trimmed[..<codexRange.lowerBound])
+            if self.codex[base] != nil { return base }
+        }
+        return trimmed
+    }
+
+    static func displayCodexModel(_ raw: String) -> String {
         var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("openai/") {
             trimmed = String(trimmed.dropFirst("openai/".count))
         }
+        return trimmed
+    }
 
-        if self.codex[trimmed] != nil {
-            return trimmed
-        }
+    private static func codexSnapshotBaseModel(_ raw: String) -> String? {
+        let patterns = [
+            #"-\d{4}-\d{2}-\d{2}$"#,
+            #"-\d{8}$"#,
+        ]
 
-        if let datedSuffix = trimmed.range(of: #"-\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) {
-            let base = String(trimmed[..<datedSuffix.lowerBound])
-            if self.codex[base] != nil {
-                return base
+        for pattern in patterns {
+            if let range = raw.range(of: pattern, options: .regularExpression) {
+                let base = String(raw[..<range.lowerBound])
+                if self.codex[base] != nil {
+                    return base
+                }
             }
         }
-        return trimmed
+
+        return nil
     }
 
     static func codexDisplayLabel(model: String) -> String? {
@@ -275,10 +361,28 @@ enum CostUsagePricing {
         guard let pricing = self.codex[key] else { return nil }
         let cached = min(max(0, cachedInputTokens), max(0, inputTokens))
         let nonCached = max(0, inputTokens - cached)
-        let cachedRate = pricing.cacheReadInputCostPerToken ?? pricing.inputCostPerToken
-        return Double(nonCached) * pricing.inputCostPerToken
-            + Double(cached) * cachedRate
-            + Double(max(0, outputTokens)) * pricing.outputCostPerToken
+        let effectiveInputTokens = max(0, inputTokens)
+        let useAboveThresholdPricing = if let threshold = pricing.thresholdTokens {
+            effectiveInputTokens > threshold
+        } else {
+            false
+        }
+        let inputRate = useAboveThresholdPricing
+            ? (pricing.inputCostPerTokenAboveThreshold ?? pricing.inputCostPerToken)
+            : pricing.inputCostPerToken
+        let outputRate = useAboveThresholdPricing
+            ? (pricing.outputCostPerTokenAboveThreshold ?? pricing.outputCostPerToken)
+            : pricing.outputCostPerToken
+        let cacheRate = useAboveThresholdPricing
+            ? (pricing.cacheReadInputCostPerTokenAboveThreshold ?? pricing.cacheReadInputCostPerToken)
+            : pricing.cacheReadInputCostPerToken
+
+        if cached > 0, cacheRate == nil {
+            return nil
+        }
+        return Double(nonCached) * inputRate
+            + Double(cached) * (cacheRate ?? 0)
+            + Double(max(0, outputTokens)) * outputRate
     }
 
     static func claudeCostUSD(
