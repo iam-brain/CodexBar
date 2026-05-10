@@ -75,7 +75,9 @@ struct ModelsDevCatalog: Codable, Equatable, Sendable {
     func containsProviderModels(from cachedCatalog: ModelsDevCatalog) -> Bool {
         cachedCatalog.providers.allSatisfy { providerID, cachedProvider in
             guard let provider = self.providers[ModelsDevProvider.normalizeProviderID(providerID)] else { return false }
-            return cachedProvider.models.values.allSatisfy { provider.containsModel(matching: $0) }
+            return cachedProvider.models.values
+                .filter(\.isPriceable)
+                .allSatisfy { provider.containsModel(matching: $0) }
         }
     }
 }
