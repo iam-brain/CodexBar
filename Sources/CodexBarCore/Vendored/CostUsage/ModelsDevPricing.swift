@@ -75,7 +75,7 @@ struct ModelsDevCatalog: Codable, Equatable, Sendable {
     func containsProviderModels(from cachedCatalog: ModelsDevCatalog) -> Bool {
         cachedCatalog.providers.allSatisfy { providerID, cachedProvider in
             guard let provider = self.providers[ModelsDevProvider.normalizeProviderID(providerID)] else { return false }
-            return cachedProvider.models.keys.allSatisfy { provider.models.keys.contains($0) }
+            return cachedProvider.models.values.allSatisfy { provider.containsModel(matching: $0) }
         }
     }
 }
@@ -159,6 +159,10 @@ struct ModelsDevProvider: Codable, Equatable, Sendable {
 
         return nil
     }
+
+    func containsModel(matching cachedModel: ModelsDevModel) -> Bool {
+        self.models.values.contains { $0.isPriceable && $0.normalizedID == cachedModel.normalizedID }
+    }
 }
 
 struct ModelsDevModel: Codable, Equatable, Sendable {
@@ -169,6 +173,10 @@ struct ModelsDevModel: Codable, Equatable, Sendable {
 
     var normalizedID: String {
         ModelsDevModelIDNormalizer.normalize(self.id)
+    }
+
+    var isPriceable: Bool {
+        self.cost?.input != nil && self.cost?.output != nil
     }
 
     func pricing(providerID: String, providerName: String?) -> ModelsDevPricingInfo? {
