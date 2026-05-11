@@ -42,6 +42,7 @@ enum CostUsageScanner {
         let parsedBytes: Int64
         let lastModel: String?
         let lastTotals: CostUsageCodexTotals?
+        let lastCodexTurnID: String?
         let sessionId: String?
         let forkedFromId: String?
         let rows: [CodexUsageRow]
@@ -661,6 +662,7 @@ enum CostUsageScanner {
         startOffset: Int64 = 0,
         initialModel: String? = nil,
         initialTotals: CostUsageCodexTotals? = nil,
+        initialCodexTurnID: String? = nil,
         inheritedTotalsResolver: ((String, String) -> CostUsageCodexTotals?)? = nil) -> CodexParseResult
     {
         var currentModel = initialModel
@@ -669,7 +671,7 @@ enum CostUsageScanner {
         var forkedFromId: String?
         var inheritedTotals: CostUsageCodexTotals?
         var remainingInheritedTotals: CostUsageCodexTotals?
-        var currentTurnID: String?
+        var currentTurnID = initialCodexTurnID
 
         var days: [String: [String: [Int]]] = [:]
         var rows: [CodexUsageRow] = []
@@ -902,6 +904,7 @@ enum CostUsageScanner {
             parsedBytes: parsedBytes,
             lastModel: currentModel,
             lastTotals: previousTotals,
+            lastCodexTurnID: currentTurnID,
             sessionId: sessionId,
             forkedFromId: forkedFromId,
             rows: rows)
@@ -975,7 +978,8 @@ enum CostUsageScanner {
                     range: range,
                     startOffset: startOffset,
                     initialModel: cached.lastModel,
-                    initialTotals: cached.lastTotals)
+                    initialTotals: cached.lastTotals,
+                    initialCodexTurnID: cached.lastCodexTurnID)
                 let sessionId = delta.sessionId ?? cached.sessionId
                 if let sessionId, state.seenSessionIds.contains(sessionId) {
                     dropCachedFile(cached)
@@ -995,6 +999,7 @@ enum CostUsageScanner {
                     parsedBytes: delta.parsedBytes,
                     lastModel: delta.lastModel,
                     lastTotals: delta.lastTotals,
+                    lastCodexTurnID: delta.lastCodexTurnID,
                     sessionId: sessionId,
                     forkedFromId: delta.forkedFromId ?? cached.forkedFromId,
                     codexRows: (cached.codexRows ?? []) + delta.rows)
@@ -1030,6 +1035,7 @@ enum CostUsageScanner {
             parsedBytes: parsed.parsedBytes,
             lastModel: parsed.lastModel,
             lastTotals: parsed.lastTotals,
+            lastCodexTurnID: parsed.lastCodexTurnID,
             sessionId: sessionId,
             forkedFromId: parsed.forkedFromId,
             codexRows: parsed.rows)
@@ -1328,6 +1334,7 @@ enum CostUsageScanner {
         parsedBytes: Int64?,
         lastModel: String? = nil,
         lastTotals: CostUsageCodexTotals? = nil,
+        lastCodexTurnID: String? = nil,
         sessionId: String? = nil,
         forkedFromId: String? = nil,
         codexRows: [CodexUsageRow]? = nil,
@@ -1340,6 +1347,7 @@ enum CostUsageScanner {
             parsedBytes: parsedBytes,
             lastModel: lastModel,
             lastTotals: lastTotals,
+            lastCodexTurnID: lastCodexTurnID,
             sessionId: sessionId,
             forkedFromId: forkedFromId,
             codexRows: codexRows,
