@@ -347,27 +347,31 @@ extension CostUsageScanner {
             modelsDevCatalog: context.resources.modelsDevCatalog,
             modelsDevCacheRoot: context.resources.modelsDevCacheRoot)
         var updated = usage
-        updated.codexCostNanos = usage.codexCostNanos ?? Self.codexCostNanos(
-            rows: migratedRows,
-            range: context.range,
-            modelsDevCatalog: context.resources.modelsDevCatalog,
-            modelsDevCacheRoot: context.resources.modelsDevCacheRoot)
-        updated.codexPrioritySurchargeNanos = usage.codexPrioritySurchargeNanos ?? Self.codexPrioritySurchargeNanos(
-            rows: migratedRows,
-            range: context.range,
-            priorityTurns: context.resources.priorityTurns,
-            modelsDevCatalog: context.resources.modelsDevCatalog,
-            modelsDevCacheRoot: context.resources.modelsDevCacheRoot)
-        updated.codexStandardCostNanos = Self.mergeCostMaps(
+        updated.codexCostNanos = Self.mergeMissingCostMaps(
+            usage.codexCostNanos,
+            Self.codexCostNanos(
+                rows: migratedRows,
+                range: context.range,
+                modelsDevCatalog: context.resources.modelsDevCatalog,
+                modelsDevCacheRoot: context.resources.modelsDevCacheRoot))
+        updated.codexPrioritySurchargeNanos = Self.mergeMissingCostMaps(
+            usage.codexPrioritySurchargeNanos,
+            Self.codexPrioritySurchargeNanos(
+                rows: migratedRows,
+                range: context.range,
+                priorityTurns: context.resources.priorityTurns,
+                modelsDevCatalog: context.resources.modelsDevCatalog,
+                modelsDevCacheRoot: context.resources.modelsDevCacheRoot))
+        updated.codexStandardCostNanos = Self.mergeMissingCostMaps(
             usage.codexStandardCostNanos,
             splitMaps.standardCostNanos)
-        updated.codexPriorityCostNanos = Self.mergeCostMaps(
+        updated.codexPriorityCostNanos = Self.mergeMissingCostMaps(
             usage.codexPriorityCostNanos,
             splitMaps.priorityCostNanos)
-        updated.codexStandardTokens = Self.mergeIntMaps(
+        updated.codexStandardTokens = Self.mergeMissingIntMaps(
             usage.codexStandardTokens,
             splitMaps.standardTokens)
-        updated.codexPriorityTokens = Self.mergeIntMaps(
+        updated.codexPriorityTokens = Self.mergeMissingIntMaps(
             usage.codexPriorityTokens,
             splitMaps.priorityTokens)
         updated.codexTurnIDs = Self.mergeCodexTurnIDs(usage.codexTurnIDs, rows: migratedRows)
@@ -537,6 +541,19 @@ extension CostUsageScanner {
         return out.isEmpty ? nil : out
     }
 
+    static func mergeMissingCostMaps(
+        _ existing: [String: [String: Int64]]?,
+        _ delta: [String: [String: Int64]]?) -> [String: [String: Int64]]?
+    {
+        var out = existing ?? [:]
+        for (day, models) in delta ?? [:] {
+            for (model, value) in models where out[day]?[model] == nil {
+                out[day, default: [:]][model] = value
+            }
+        }
+        return out.isEmpty ? nil : out
+    }
+
     static func mergeIntMaps(
         _ existing: [String: [String: Int]]?,
         _ delta: [String: [String: Int]]?) -> [String: [String: Int]]?
@@ -545,6 +562,19 @@ extension CostUsageScanner {
         for (day, models) in delta ?? [:] {
             for (model, value) in models {
                 out[day, default: [:]][model, default: 0] += value
+            }
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    static func mergeMissingIntMaps(
+        _ existing: [String: [String: Int]]?,
+        _ delta: [String: [String: Int]]?) -> [String: [String: Int]]?
+    {
+        var out = existing ?? [:]
+        for (day, models) in delta ?? [:] {
+            for (model, value) in models where out[day]?[model] == nil {
+                out[day, default: [:]][model] = value
             }
         }
         return out.isEmpty ? nil : out

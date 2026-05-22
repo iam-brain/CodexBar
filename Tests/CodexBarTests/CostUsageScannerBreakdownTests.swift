@@ -509,10 +509,18 @@ struct CostUsageScannerBreakdownTests {
         let path = try #require(cache.files.keys.first)
         var cachedUsage = try #require(cache.files[path])
         let originalCostNanos = try #require(cachedUsage.codexCostNanos?[dayKey]?[normalizedModel])
+        let addedModel = CostUsagePricing.normalizeCodexModel("gpt-5.5")
         cachedUsage.codexRows = [
             CostUsageScanner.CodexUsageRow(
                 day: dayKey,
                 model: normalizedModel,
+                turnID: nil,
+                input: 10,
+                cached: 0,
+                output: 0),
+            CostUsageScanner.CodexUsageRow(
+                day: dayKey,
+                model: addedModel,
                 turnID: nil,
                 input: 10,
                 cached: 0,
@@ -538,7 +546,9 @@ struct CostUsageScannerBreakdownTests {
         let migratedUsage = try #require(CostUsageCacheIO.load(provider: .codex, cacheRoot: env.cacheRoot).files[path])
         #expect(migratedUsage.codexRows == nil)
         #expect(migratedUsage.codexCostNanos?[dayKey]?[normalizedModel] == originalCostNanos)
+        #expect(migratedUsage.codexCostNanos?[dayKey]?[addedModel] == Int64((10.0 * 5e-6 * 1_000_000_000).rounded()))
         #expect(migratedUsage.codexStandardTokens?[dayKey]?[normalizedModel] == 10)
+        #expect(migratedUsage.codexStandardTokens?[dayKey]?[addedModel] == 10)
     }
 
     @Test
