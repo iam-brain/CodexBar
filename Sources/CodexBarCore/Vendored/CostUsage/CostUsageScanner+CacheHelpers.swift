@@ -1040,9 +1040,9 @@ extension CostUsageScanner {
                 } else {
                     nil
                 }
-                var cost = cachedBaseCost
+                var cost = splitTotalCost
+                    ?? cachedBaseCost
                     ?? rowTotalCost
-                    ?? splitTotalCost
                     ?? CostUsagePricing.codexCostUSD(
                         model: model,
                         inputTokens: input,
@@ -1050,11 +1050,13 @@ extension CostUsageScanner {
                         outputTokens: output,
                         modelsDevCatalog: modelsDevCatalog,
                         modelsDevCacheRoot: modelsDevCacheRoot)
-                if let surchargeNanos = prioritySurchargeNanosByDayModel[day]?[model],
+                if splitTotalCost == nil,
+                   let surchargeNanos = prioritySurchargeNanosByDayModel[day]?[model],
                    cachedBaseCost != nil
                 {
                     cost = (cost ?? 0) + (Double(surchargeNanos) / Self.costScale)
-                } else if rowTotalCost == nil,
+                } else if splitTotalCost == nil,
+                          rowTotalCost == nil,
                           !priorityTurns.isEmpty,
                           let rows,
                           let surcharge = self.codexPrioritySurchargeUSD(
