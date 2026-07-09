@@ -26,6 +26,8 @@ struct CostHistoryChartMenuViewTests {
         ])
         #expect(CostHistoryChartMenuView.detailViewportRowCount(itemCount: ordered.count) == 4)
         #expect(CostHistoryChartMenuView.detailRowsNeedScrolling(itemCount: ordered.count))
+        #expect(CostHistoryChartMenuView.detailOverflowHint(itemCount: ordered.count) == "Scroll to see more models")
+        #expect(CostHistoryChartMenuView.detailOverflowHint(itemCount: 4) == nil)
     }
 
     @Test
@@ -70,21 +72,9 @@ struct CostHistoryChartMenuViewTests {
 
     @Test
     @MainActor
-    func `cost history detail height follows visible rows and caps at viewport limit`() {
-        let singleRowHeight = CostHistoryChartMenuView._detailViewportHeightForTesting(modeSubtitlePresence: [false])
-        let twoRowHeight = CostHistoryChartMenuView._detailViewportHeightForTesting(modeSubtitlePresence: [false, true])
-        let fourRowHeight = CostHistoryChartMenuView._detailViewportHeightForTesting(
-            modeSubtitlePresence: [false, false, false, false])
-        let fiveRowHeight = CostHistoryChartMenuView._detailViewportHeightForTesting(
-            modeSubtitlePresence: [false, false, false, false, true])
-
-        #expect(singleRowHeight < twoRowHeight)
-        #expect(twoRowHeight < fourRowHeight)
-        #expect(fiveRowHeight == fourRowHeight)
-
-        let emptyBlockHeight = CostHistoryChartMenuView._detailBlockHeightForTesting(modeSubtitlePresence: [])
-        let populatedBlockHeight = CostHistoryChartMenuView._detailBlockHeightForTesting(modeSubtitlePresence: [false])
-        #expect(emptyBlockHeight < populatedBlockHeight)
+    func `cost history reserves a four-row detail viewport`() {
+        #expect(CostHistoryChartMenuView._detailViewportHeightForTesting == 194)
+        #expect(CostHistoryChartMenuView._detailBlockHeightForTesting > 194)
     }
 
     @Test
@@ -202,14 +192,14 @@ struct CostHistoryChartMenuViewTests {
 
     @Test
     @MainActor
-    func `cost history total card height grows with rows and the total line`() {
+    func `cost history total card height stays stable across model counts`() {
         let oneRow = CostHistoryChartMenuView._totalCardHeightForTesting(
             modeSubtitlePresence: [false],
             hasTotal: false)
         let threeRows = CostHistoryChartMenuView._totalCardHeightForTesting(
             modeSubtitlePresence: [false, false, false],
             hasTotal: false)
-        #expect(oneRow < threeRows)
+        #expect(oneRow == threeRows)
 
         let withoutTotal = CostHistoryChartMenuView._totalCardHeightForTesting(
             modeSubtitlePresence: [false],

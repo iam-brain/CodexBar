@@ -49,7 +49,6 @@ struct CostHistoryChartMenuView: View {
     private let windowLabel: String?
     private let projects: [CostUsageProjectBreakdown]
     private let width: CGFloat
-    private let onHeightChange: ((CGFloat) -> Void)?
     @State private var selectedDateKey: String?
 
     init(
@@ -60,7 +59,6 @@ struct CostHistoryChartMenuView: View {
         historyDays: Int = 30,
         windowLabel: String? = nil,
         projects: [CostUsageProjectBreakdown] = [],
-        onHeightChange: ((CGFloat) -> Void)? = nil,
         width: CGFloat)
     {
         self.provider = provider
@@ -70,7 +68,6 @@ struct CostHistoryChartMenuView: View {
         self.historyDays = max(1, min(365, historyDays))
         self.windowLabel = windowLabel
         self.projects = projects
-        self.onHeightChange = onHeightChange
         self.width = width
     }
 
@@ -161,62 +158,62 @@ struct CostHistoryChartMenuView: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(height: Self.detailPrimaryLineHeight, alignment: .leading)
-                    if !detail.rows.isEmpty {
-                        ScrollView(.vertical) {
-                            VStack(alignment: .leading, spacing: Self.detailSpacing) {
-                                ForEach(detail.rows) { row in
-                                    HStack(alignment: .top, spacing: 8) {
-                                        Rectangle()
-                                            .fill(row.accentColor)
-                                            .frame(
-                                                width: 2,
-                                                height: Self.accentHeight(for: row))
-                                            .padding(.top, 1)
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: Self.detailSpacing) {
+                            ForEach(detail.rows) { row in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Rectangle()
+                                        .fill(row.accentColor)
+                                        .frame(
+                                            width: 2,
+                                            height: Self.accentHeight(for: row))
+                                        .padding(.top, 1)
 
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(row.title)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(row.title)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(height: Self.detailTitleLineHeight, alignment: .leading)
+                                        if let subtitle = row.subtitle {
+                                            Text(subtitle)
+                                                .font(.caption2)
+                                                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
-                                                .frame(height: Self.detailTitleLineHeight, alignment: .leading)
-                                            if let subtitle = row.subtitle {
-                                                Text(subtitle)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
-                                                    .frame(
-                                                        height: Self.detailSubtitleLineHeight,
-                                                        alignment: .leading)
-                                            }
-                                            if let modeSubtitle = row.modeSubtitle {
-                                                Text(modeSubtitle)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
-                                                    .frame(
-                                                        height: Self.detailSubtitleLineHeight,
-                                                        alignment: .leading)
-                                            }
+                                                .frame(
+                                                    height: Self.detailSubtitleLineHeight,
+                                                    alignment: .leading)
+                                        }
+                                        if let modeSubtitle = row.modeSubtitle {
+                                            Text(modeSubtitle)
+                                                .font(.caption2)
+                                                .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                                .frame(
+                                                    height: Self.detailSubtitleLineHeight,
+                                                    alignment: .leading)
                                         }
                                     }
-                                    .frame(height: Self.detailRowHeight(for: row), alignment: .leading)
                                 }
+                                .frame(height: Self.detailRowHeight(for: row), alignment: .leading)
                             }
                         }
-                        .scrollIndicators(
-                            Self.detailRowsNeedScrolling(itemCount: detail.rows.count) ? .visible : .hidden)
-                        .frame(
-                            height: Self.detailRowsViewportHeight(rows: detail.rows),
-                            alignment: .topLeading)
-                        .id(selectedDateKey)
                     }
+                    .scrollIndicators(
+                        Self.detailRowsNeedScrolling(itemCount: detail.rows.count) ? .visible : .hidden)
+                    .frame(height: Self.detailRowsViewportHeight, alignment: .topLeading)
+                    .id(selectedDateKey)
+
+                    Text(Self.detailOverflowHint(itemCount: detail.rows.count) ?? " ")
+                        .font(.caption2)
+                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                        .frame(height: Self.detailHintHeight, alignment: .leading)
+                        .accessibilityHidden(!Self.detailRowsNeedScrolling(itemCount: detail.rows.count))
                 }
-                .frame(
-                    height: Self.detailBlockHeight(rows: detail.rows),
-                    alignment: .topLeading)
+                .frame(height: Self.detailBlockHeight, alignment: .topLeading)
             }
 
             if let total = self.totalCostUSD {
@@ -290,6 +287,7 @@ struct CostHistoryChartMenuView: View {
     private static let compactDetailRowHeight: CGFloat = 36
     private static let expandedDetailRowHeight: CGFloat = 44
     private static let detailSpacing: CGFloat = 6
+    private static let detailHintHeight: CGFloat = 13
     private static let chartHeight: CGFloat = 130
     private static let outerSpacing: CGFloat = 10
     private static let projectRowHeight: CGFloat = 31
@@ -302,19 +300,14 @@ struct CostHistoryChartMenuView: View {
     private static let maxVisibleProjectSourceRows = 2
     static let verticalPadding: CGFloat = 10
 
-    /// Deterministic total height of the rendered card for a given selection. NSMenu's modal
-    /// tracking run loop never delivers SwiftUI `onPreferenceChange`, so the live height can't be
-    /// measured via a GeometryReader while the menu is open. Every component height is fixed, so
-    /// we compute the total directly and resize from the hover handler instead.
     private static func totalCardHeight(
-        rows: [DetailRow],
         hasTotal: Bool,
         projects: [CostUsageProjectBreakdown] = []) -> CGFloat
     {
         var height = self.verticalPadding * 2
         height += self.chartHeight
         height += self.outerSpacing
-        height += self.detailBlockHeight(rows: rows)
+        height += self.detailBlockHeight
         if hasTotal {
             height += self.outerSpacing
             height += self.detailPrimaryLineHeight
@@ -326,7 +319,7 @@ struct CostHistoryChartMenuView: View {
         return height
     }
 
-    private static func totalCardHeight(rows: [DetailRow], hasTotal: Bool, projectCount: Int) -> CGFloat {
+    private static func totalCardHeight(hasTotal: Bool, projectCount: Int) -> CGFloat {
         let projects = (0..<projectCount).map { index in
             CostUsageProjectBreakdown(
                 name: "Project \(index)",
@@ -336,7 +329,7 @@ struct CostHistoryChartMenuView: View {
                 daily: [],
                 modelBreakdowns: nil)
         }
-        return self.totalCardHeight(rows: rows, hasTotal: hasTotal, projects: projects)
+        return self.totalCardHeight(hasTotal: hasTotal, projects: projects)
     }
 
     static func windowLabel(days: Int) -> String {
@@ -481,21 +474,12 @@ struct CostHistoryChartMenuView: View {
         item.standardCostUSD != nil || item.priorityCostUSD != nil
     }
 
-    private static func detailBlockHeight(rows: [DetailRow]) -> CGFloat {
-        guard !rows.isEmpty else { return self.detailPrimaryLineHeight }
-        return self.detailPrimaryLineHeight + self.detailRowsViewportHeight(rows: rows) + self.detailSpacing
-    }
+    private static let detailRowsViewportHeight =
+        CGFloat(maxVisibleDetailLines) * expandedDetailRowHeight +
+        CGFloat(maxVisibleDetailLines - 1) * detailSpacing
 
-    private static func detailRowsViewportHeight(rows: [DetailRow]) -> CGFloat {
-        let visibleRows = Array(rows.prefix(self.maxVisibleDetailLines))
-        guard !visibleRows.isEmpty else { return 0 }
-
-        let rowHeights = visibleRows.reduce(CGFloat(0)) { total, row in
-            total + self.detailRowHeight(for: row)
-        }
-        let spacing = CGFloat(max(visibleRows.count - 1, 0)) * self.detailSpacing
-        return rowHeights + spacing
-    }
+    private static let detailBlockHeight = detailPrimaryLineHeight + detailSpacing +
+        detailRowsViewportHeight + detailSpacing + detailHintHeight
 
     private static func projectBlockHeight(projects: [CostUsageProjectBreakdown]) -> CGFloat {
         let visibleProjects = Array(projects.prefix(self.maxVisibleProjectRows))
@@ -580,20 +564,7 @@ struct CostHistoryChartMenuView: View {
 
         if self.selectedDateKey != nearest {
             self.selectedDateKey = nearest
-            // Resize directly from the hover handler: this runs synchronously inside NSMenu's
-            // tracking run loop, unlike SwiftUI preference callbacks which are never delivered
-            // while the menu is open.
-            self.notifyHeightChange(selectedDateKey: nearest, model: model)
         }
-    }
-
-    private func notifyHeightChange(selectedDateKey: String?, model: Model) {
-        guard let onHeightChange = self.onHeightChange else { return }
-        let rows = selectedDateKey.map { self.breakdownRows(key: $0, model: model) } ?? []
-        onHeightChange(Self.totalCardHeight(
-            rows: rows,
-            hasTotal: self.totalCostUSD != nil,
-            projects: self.projects))
     }
 
     private func projectSummary(_ project: CostUsageProjectBreakdown) -> String {
@@ -738,6 +709,10 @@ struct CostHistoryChartMenuView: View {
         itemCount > self.maxVisibleDetailLines
     }
 
+    static func detailOverflowHint(itemCount: Int) -> String? {
+        self.detailRowsNeedScrolling(itemCount: itemCount) ? L("Scroll to see more models") : nil
+    }
+
     private func modelBreakdownTotalSubtitle(_ item: CostUsageDailyReport.ModelBreakdown) -> String? {
         UsageFormatter.modelCostDetail(
             item.modelName,
@@ -808,28 +783,12 @@ extension CostHistoryChartMenuView {
         self.yAxisCostString(value, currencyCode: currencyCode)
     }
 
-    static func _detailViewportHeightForTesting(modeSubtitlePresence: [Bool]) -> CGFloat {
-        let rows = modeSubtitlePresence.enumerated().map { index, hasModeSubtitle in
-            DetailRow(
-                id: "\(index)",
-                title: "Row \(index)",
-                subtitle: "Subtitle",
-                modeSubtitle: hasModeSubtitle ? "Mode" : nil,
-                accentColor: .blue)
-        }
-        return self.detailRowsViewportHeight(rows: rows)
+    static var _detailViewportHeightForTesting: CGFloat {
+        self.detailRowsViewportHeight
     }
 
-    static func _detailBlockHeightForTesting(modeSubtitlePresence: [Bool]) -> CGFloat {
-        let rows = modeSubtitlePresence.enumerated().map { index, hasModeSubtitle in
-            DetailRow(
-                id: "\(index)",
-                title: "Row \(index)",
-                subtitle: "Subtitle",
-                modeSubtitle: hasModeSubtitle ? "Mode" : nil,
-                accentColor: .blue)
-        }
-        return self.detailBlockHeight(rows: rows)
+    static var _detailBlockHeightForTesting: CGFloat {
+        self.detailBlockHeight
     }
 
     static func _totalCardHeightForTesting(
@@ -837,15 +796,8 @@ extension CostHistoryChartMenuView {
         hasTotal: Bool,
         projectCount: Int = 0) -> CGFloat
     {
-        let rows = modeSubtitlePresence.enumerated().map { index, hasModeSubtitle in
-            DetailRow(
-                id: "\(index)",
-                title: "Row \(index)",
-                subtitle: "Subtitle",
-                modeSubtitle: hasModeSubtitle ? "Mode" : nil,
-                accentColor: .blue)
-        }
-        return self.totalCardHeight(rows: rows, hasTotal: hasTotal, projectCount: projectCount)
+        _ = modeSubtitlePresence
+        return self.totalCardHeight(hasTotal: hasTotal, projectCount: projectCount)
     }
 
     static func _totalCardHeightForTesting(
@@ -853,14 +805,7 @@ extension CostHistoryChartMenuView {
         hasTotal: Bool,
         projectSourceCounts: [Int]) -> CGFloat
     {
-        let rows = modeSubtitlePresence.enumerated().map { index, hasModeSubtitle in
-            DetailRow(
-                id: "\(index)",
-                title: "Model \(index)",
-                subtitle: "Cost",
-                modeSubtitle: hasModeSubtitle ? "Mode" : nil,
-                accentColor: .blue)
-        }
+        _ = modeSubtitlePresence
         let projects = projectSourceCounts.enumerated().map { index, sourceCount in
             CostUsageProjectBreakdown(
                 name: "Project \(index)",
@@ -879,7 +824,7 @@ extension CostHistoryChartMenuView {
                         modelBreakdowns: nil)
                 })
         }
-        return self.totalCardHeight(rows: rows, hasTotal: hasTotal, projects: projects)
+        return self.totalCardHeight(hasTotal: hasTotal, projects: projects)
     }
 }
 
