@@ -79,16 +79,40 @@ struct CostHistoryChartMenuViewTests {
         let cappedRows = CostHistoryChartMenuView._detailViewportConfigurationForTesting(
             provider: .codex,
             daily: [Self.entry(date: "2026-06-07", modelCount: 6)])
+        let mixedRows = CostHistoryChartMenuView._detailViewportConfigurationForTesting(
+            provider: .codex,
+            daily: [Self.entry(date: "2026-06-07", modelCount: 6), Self.entry(date: "2026-06-08", modelCount: 1)])
         let noRows = CostHistoryChartMenuView._detailViewportConfigurationForTesting(
             provider: .codex,
             daily: [Self.entry(date: "2026-06-07", modelCount: 0)])
 
         #expect(threeRows.rowCount == 3)
         #expect(!threeRows.hasOverflow)
+        #expect(threeRows.rowHeight == 36)
         #expect(cappedRows.rowCount == 4)
         #expect(cappedRows.hasOverflow)
+        #expect(mixedRows.rowCount == 4)
+        #expect(mixedRows.hasOverflow)
         #expect(noRows.rowCount == 0)
         #expect(!noRows.hasOverflow)
+    }
+
+    @Test
+    @MainActor
+    func `cost history expands every row only when the range contains mode details`() {
+        let compact = CostHistoryChartMenuView._detailViewportConfigurationForTesting(
+            provider: .codex,
+            daily: [Self.entry(date: "2026-06-07", modelCount: 2)])
+        let expanded = CostHistoryChartMenuView._detailViewportConfigurationForTesting(
+            provider: .codex,
+            daily: [
+                Self.entry(date: "2026-06-07", modelCount: 2),
+                Self.entry(date: "2026-06-08", modelCount: 1, hasModeDetails: true),
+            ])
+
+        #expect(compact.rowHeight == 36)
+        #expect(expanded.rowHeight == 44)
+        #expect(compact.rowCount == expanded.rowCount)
     }
 
     @Test
@@ -269,7 +293,11 @@ struct CostHistoryChartMenuViewTests {
         return ceil(hosting.fittingSize.height)
     }
 
-    private static func entry(date: String, modelCount: Int) -> CostUsageDailyReport.Entry {
+    private static func entry(
+        date: String,
+        modelCount: Int,
+        hasModeDetails: Bool = false) -> CostUsageDailyReport.Entry
+    {
         CostUsageDailyReport.Entry(
             date: date,
             inputTokens: 100,
@@ -282,7 +310,8 @@ struct CostHistoryChartMenuViewTests {
                     CostUsageDailyReport.ModelBreakdown(
                         modelName: "model-\($0)",
                         costUSD: Double($0 + 1),
-                        totalTokens: ($0 + 1) * 100)
+                        totalTokens: ($0 + 1) * 100,
+                        standardCostUSD: hasModeDetails ? Double($0 + 1) * 0.75 : nil)
                 }
                 : nil)
     }

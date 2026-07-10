@@ -167,7 +167,9 @@ struct CostHistoryChartMenuView: View {
                                             .fill(row.accentColor)
                                             .frame(
                                                 width: 2,
-                                                height: Self.accentHeight(for: row))
+                                                height: Self.accentHeight(
+                                                    for: row,
+                                                    rowHeight: model.detailRowHeight))
                                             .padding(.top, 1)
 
                                         VStack(alignment: .leading, spacing: 1) {
@@ -199,14 +201,16 @@ struct CostHistoryChartMenuView: View {
                                             }
                                         }
                                     }
-                                    .frame(height: Self.detailRowHeight, alignment: .leading)
+                                    .frame(height: model.detailRowHeight, alignment: .leading)
                                 }
                             }
                         }
                         .scrollIndicators(
                             Self.detailRowsNeedScrolling(itemCount: detail.rows.count) ? .visible : .hidden)
                         .frame(
-                            height: Self.detailRowsViewportHeight(rowCount: model.detailViewportRowCount),
+                            height: Self.detailRowsViewportHeight(
+                                rowCount: model.detailViewportRowCount,
+                                rowHeight: model.detailRowHeight),
                             alignment: .topLeading)
                         .id(selectedDateKey)
 
@@ -222,7 +226,8 @@ struct CostHistoryChartMenuView: View {
                 .frame(
                     height: Self.detailBlockHeight(
                         rowCount: model.detailViewportRowCount,
-                        hasOverflow: model.hasDetailOverflow),
+                        hasOverflow: model.hasDetailOverflow,
+                        rowHeight: model.detailRowHeight),
                     alignment: .topLeading)
             }
 
@@ -289,6 +294,7 @@ struct CostHistoryChartMenuView: View {
         let maxCostUSD: Double
         let detailViewportRowCount: Int
         let hasDetailOverflow: Bool
+        let detailRowHeight: CGFloat
     }
 
     private static let selectionBandColor = Color(nsColor: .labelColor).opacity(0.1)
@@ -296,7 +302,8 @@ struct CostHistoryChartMenuView: View {
     private static let detailPrimaryLineHeight: CGFloat = 16
     private static let detailTitleLineHeight: CGFloat = 16
     private static let detailSubtitleLineHeight: CGFloat = 13
-    private static let detailRowHeight: CGFloat = 44
+    private static let compactDetailRowHeight: CGFloat = 36
+    private static let expandedDetailRowHeight: CGFloat = 44
     private static let detailSpacing: CGFloat = 6
     private static let detailHintHeight: CGFloat = 13
     private static let chartHeight: CGFloat = 130
@@ -318,8 +325,8 @@ struct CostHistoryChartMenuView: View {
         return String(format: L("Last %d days"), days)
     }
 
-    private static func accentHeight(for row: DetailRow) -> CGFloat {
-        row.subtitle == nil && row.modeSubtitle == nil ? 14 : self.detailRowHeight
+    private static func accentHeight(for row: DetailRow, rowHeight: CGFloat) -> CGFloat {
+        row.subtitle == nil && row.modeSubtitle == nil ? 14 : rowHeight
     }
 
     private static func capHeight(maxValue: Double) -> Double {
@@ -354,6 +361,7 @@ struct CostHistoryChartMenuView: View {
         var peak: (key: String, costUSD: Double)?
         var maxCostUSD: Double = 0
         var maxDetailRows = 0
+        var hasModeDetails = false
         for entry in sorted {
             guard let costUSD = entry.costUSD, costUSD >= 0 else { continue }
             guard let date = self.dateFromDayKey(entry.date) else { continue }
@@ -366,9 +374,13 @@ struct CostHistoryChartMenuView: View {
             pointsByKey[entry.date] = point
             entriesByKey[entry.date] = entry
             dateKeys.append((entry.date, date))
-            maxDetailRows = max(maxDetailRows, entry.modelBreakdowns?.count ?? 0)
+            let modelBreakdowns = entry.modelBreakdowns ?? []
+            maxDetailRows = max(maxDetailRows, modelBreakdowns.count)
+            hasModeDetails = hasModeDetails || modelBreakdowns.contains { Self.hasModeSubtitle($0) }
             if let cur = peak {
-                if costUSD > cur.costUSD { peak = (entry.date, costUSD) }
+                if costUSD > cur.costUSD {
+                    peak = (entry.date, costUSD)
+                }
             } else {
                 peak = (entry.date, costUSD)
             }
@@ -377,7 +389,9 @@ struct CostHistoryChartMenuView: View {
 
         let axisDates: [Date] = {
             guard let first = dateKeys.first?.date, let last = dateKeys.last?.date else { return [] }
-            if Calendar.current.isDate(first, inSameDayAs: last) { return [first] }
+            if Calendar.current.isDate(first, inSameDayAs: last) {
+                return [first]
+            }
             return [first, last]
         }()
 
@@ -392,7 +406,8 @@ struct CostHistoryChartMenuView: View {
             peakKey: maxCostUSD > 0 ? peak?.key : nil,
             maxCostUSD: maxCostUSD,
             detailViewportRowCount: min(maxDetailRows, self.maxVisibleDetailLines),
-            hasDetailOverflow: maxDetailRows > self.maxVisibleDetailLines)
+            hasDetailOverflow: maxDetailRows > self.maxVisibleDetailLines,
+            detailRowHeight: hasModeDetails ? self.expandedDetailRowHeight : self.compactDetailRowHeight)
     }
 
     private static func axisLabelPlacement(for dates: [Date]) -> AxisLabelPlacement {
@@ -445,15 +460,19 @@ struct CostHistoryChartMenuView: View {
         return model.pointsByDateKey[key]
     }
 
-    private static func detailRowsViewportHeight(rowCount: Int) -> CGFloat {
-        guard rowCount > 0 else { return 0 }
-        return CGFloat(rowCount) * self.detailRowHeight + CGFloat(rowCount - 1) * self.detailSpacing
+    private static func hasModeSubtitle(_ item: CostUsageDailyReport.ModelBreakdown) -> Bool {
+        item.standardCostUSD != nil || item.priorityCostUSD != nil
     }
 
-    private static func detailBlockHeight(rowCount: Int, hasOverflow: Bool) -> CGFloat {
+    private static func detailRowsViewportHeight(rowCount: Int, rowHeight: CGFloat) -> CGFloat {
+        guard rowCount > 0 else { return 0 }
+        return CGFloat(rowCount) * rowHeight + CGFloat(rowCount - 1) * self.detailSpacing
+    }
+
+    private static func detailBlockHeight(rowCount: Int, hasOverflow: Bool, rowHeight: CGFloat) -> CGFloat {
         guard rowCount > 0 else { return self.detailPrimaryLineHeight }
         var height = self.detailPrimaryLineHeight + self.detailSpacing
-        height += self.detailRowsViewportHeight(rowCount: rowCount)
+        height += self.detailRowsViewportHeight(rowCount: rowCount, rowHeight: rowHeight)
         if hasOverflow {
             height += self.detailSpacing + self.detailHintHeight
         }
@@ -619,7 +638,9 @@ struct CostHistoryChartMenuView: View {
         for entry in model.dateKeys {
             let dist = abs(entry.date.timeIntervalSince(date))
             if let cur = best {
-                if dist < cur.distance { best = (entry.key, dist) }
+                if dist < cur.distance {
+                    best = (entry.key, dist)
+                }
             } else {
                 best = (entry.key, dist)
             }
@@ -670,11 +691,15 @@ struct CostHistoryChartMenuView: View {
         breakdown.sorted { lhs, rhs in
             let lCost = lhs.costUSD ?? -1
             let rCost = rhs.costUSD ?? -1
-            if lCost != rCost { return lCost > rCost }
+            if lCost != rCost {
+                return lCost > rCost
+            }
 
             let lTokens = lhs.totalTokens ?? -1
             let rTokens = rhs.totalTokens ?? -1
-            if lTokens != rTokens { return lTokens > rTokens }
+            if lTokens != rTokens {
+                return lTokens > rTokens
+            }
 
             return lhs.modelName > rhs.modelName
         }
@@ -764,10 +789,10 @@ extension CostHistoryChartMenuView {
 
     static func _detailViewportConfigurationForTesting(
         provider: UsageProvider,
-        daily: [DailyEntry]) -> (rowCount: Int, hasOverflow: Bool)
+        daily: [DailyEntry]) -> (rowCount: Int, hasOverflow: Bool, rowHeight: CGFloat)
     {
         let model = self.makeModel(provider: provider, daily: daily)
-        return (model.detailViewportRowCount, model.hasDetailOverflow)
+        return (model.detailViewportRowCount, model.hasDetailOverflow, model.detailRowHeight)
     }
 }
 
