@@ -72,9 +72,23 @@ struct CostHistoryChartMenuViewTests {
 
     @Test
     @MainActor
-    func `cost history reserves a four-row detail viewport`() {
-        #expect(CostHistoryChartMenuView._detailViewportHeightForTesting == 194)
-        #expect(CostHistoryChartMenuView._detailBlockHeightForTesting > 194)
+    func `cost history sizes its viewport to the largest breakdown in the range`() {
+        let threeRows = CostHistoryChartMenuView._detailViewportConfigurationForTesting(
+            provider: .codex,
+            daily: [Self.entry(date: "2026-06-07", modelCount: 1), Self.entry(date: "2026-06-08", modelCount: 3)])
+        let cappedRows = CostHistoryChartMenuView._detailViewportConfigurationForTesting(
+            provider: .codex,
+            daily: [Self.entry(date: "2026-06-07", modelCount: 6)])
+        let noRows = CostHistoryChartMenuView._detailViewportConfigurationForTesting(
+            provider: .codex,
+            daily: [Self.entry(date: "2026-06-07", modelCount: 0)])
+
+        #expect(threeRows.rowCount == 3)
+        #expect(!threeRows.hasOverflow)
+        #expect(cappedRows.rowCount == 4)
+        #expect(cappedRows.hasOverflow)
+        #expect(noRows.rowCount == 0)
+        #expect(!noRows.hasOverflow)
     }
 
     @Test
@@ -192,34 +206,26 @@ struct CostHistoryChartMenuViewTests {
 
     @Test
     @MainActor
-    func `cost history total card height stays stable across model counts`() {
-        let oneRow = CostHistoryChartMenuView._totalCardHeightForTesting(
-            modeSubtitlePresence: [false],
-            hasTotal: false)
-        let threeRows = CostHistoryChartMenuView._totalCardHeightForTesting(
-            modeSubtitlePresence: [false, false, false],
-            hasTotal: false)
-        #expect(oneRow == threeRows)
+    func `cost history fitting height stays stable across selected model counts`() {
+        let latestHasOneModel = [
+            Self.entry(date: "2026-06-07", modelCount: 3),
+            Self.entry(date: "2026-06-08", modelCount: 1),
+        ]
+        let latestHasThreeModels = [
+            Self.entry(date: "2026-06-07", modelCount: 1),
+            Self.entry(date: "2026-06-08", modelCount: 3),
+        ]
 
-        let withoutTotal = CostHistoryChartMenuView._totalCardHeightForTesting(
-            modeSubtitlePresence: [false],
-            hasTotal: false)
-        let withTotal = CostHistoryChartMenuView._totalCardHeightForTesting(
-            modeSubtitlePresence: [false],
-            hasTotal: true)
-        #expect(withTotal > withoutTotal)
+        #expect(Self.renderedHeight(daily: latestHasOneModel) == Self.renderedHeight(daily: latestHasThreeModels))
+    }
 
-        let withProjects = CostHistoryChartMenuView._totalCardHeightForTesting(
-            modeSubtitlePresence: [false],
-            hasTotal: true,
-            projectCount: 3)
-        #expect(withProjects > withTotal)
+    @Test
+    @MainActor
+    func `cost history without model breakdown stays compact`() {
+        let noBreakdown = [Self.entry(date: "2026-06-07", modelCount: 0)]
+        let withBreakdown = [Self.entry(date: "2026-06-07", modelCount: 1)]
 
-        let withProjectSources = CostHistoryChartMenuView._totalCardHeightForTesting(
-            modeSubtitlePresence: [false],
-            hasTotal: true,
-            projectSourceCounts: [3])
-        #expect(withProjectSources > withProjects)
+        #expect(Self.renderedHeight(daily: noBreakdown) < Self.renderedHeight(daily: withBreakdown))
     }
 
     @Test
@@ -249,5 +255,35 @@ struct CostHistoryChartMenuViewTests {
                     daily: [],
                     modelBreakdowns: nil),
             ])
+    }
+
+    @MainActor
+    private static func renderedHeight(daily: [CostUsageDailyReport.Entry]) -> CGFloat {
+        let hosting = MenuHostingView(rootView: CostHistoryChartMenuView(
+            provider: .codex,
+            daily: daily,
+            totalCostUSD: nil,
+            width: 320))
+        hosting.frame = CGRect(x: 0, y: 0, width: 320, height: 1)
+        hosting.layoutSubtreeIfNeeded()
+        return ceil(hosting.fittingSize.height)
+    }
+
+    private static func entry(date: String, modelCount: Int) -> CostUsageDailyReport.Entry {
+        CostUsageDailyReport.Entry(
+            date: date,
+            inputTokens: 100,
+            outputTokens: 50,
+            totalTokens: 150,
+            costUSD: 1,
+            modelsUsed: modelCount > 0 ? (0..<modelCount).map { "model-\($0)" } : nil,
+            modelBreakdowns: modelCount > 0
+                ? (0..<modelCount).map {
+                    CostUsageDailyReport.ModelBreakdown(
+                        modelName: "model-\($0)",
+                        costUSD: Double($0 + 1),
+                        totalTokens: ($0 + 1) * 100)
+                }
+                : nil)
     }
 }
