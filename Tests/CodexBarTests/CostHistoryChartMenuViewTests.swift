@@ -230,17 +230,41 @@ struct CostHistoryChartMenuViewTests {
 
     @Test
     @MainActor
-    func `cost history fitting height stays stable across selected model counts`() {
-        let latestHasOneModel = [
+    func `cost history fitting height stays stable across compact overflow and mode selections`() {
+        let compactLatestHasOneModel = [
             Self.entry(date: "2026-06-07", modelCount: 3),
             Self.entry(date: "2026-06-08", modelCount: 1),
         ]
-        let latestHasThreeModels = [
+        let compactLatestHasThreeModels = [
             Self.entry(date: "2026-06-07", modelCount: 1),
             Self.entry(date: "2026-06-08", modelCount: 3),
         ]
+        let overflowLatestHasFourModels = [
+            Self.entry(date: "2026-06-07", modelCount: 6),
+            Self.entry(date: "2026-06-08", modelCount: 4),
+        ]
+        let overflowLatestHasSixModels = [
+            Self.entry(date: "2026-06-07", modelCount: 4),
+            Self.entry(date: "2026-06-08", modelCount: 6),
+        ]
+        let modeLatestHasOneModel = [
+            Self.entry(date: "2026-06-07", modelCount: 6),
+            Self.entry(date: "2026-06-08", modelCount: 1, hasModeDetails: true),
+        ]
+        let modeLatestHasSixModels = [
+            Self.entry(date: "2026-06-07", modelCount: 1, hasModeDetails: true),
+            Self.entry(date: "2026-06-08", modelCount: 6),
+        ]
 
-        #expect(Self.renderedHeight(daily: latestHasOneModel) == Self.renderedHeight(daily: latestHasThreeModels))
+        let compactHeight = Self.renderedHeight(daily: compactLatestHasOneModel)
+        let overflowHeight = Self.renderedHeight(daily: overflowLatestHasFourModels)
+        let modeHeight = Self.renderedHeight(daily: modeLatestHasOneModel)
+
+        #expect(compactHeight == Self.renderedHeight(daily: compactLatestHasThreeModels))
+        #expect(overflowHeight == Self.renderedHeight(daily: overflowLatestHasSixModels))
+        #expect(modeHeight == Self.renderedHeight(daily: modeLatestHasSixModels))
+        #expect(compactHeight < overflowHeight)
+        #expect(overflowHeight < modeHeight)
     }
 
     @Test
