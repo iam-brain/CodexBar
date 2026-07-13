@@ -522,9 +522,10 @@ enum CostUsageScanner {
         private let filePaths: Set<String>
         private let roots: [URL]
         private let checkCancellation: CancellationCheck?
-        private var nextUnindexedFile = 0
+        private var didIndexFiles = false
         private var didIndexRoots = false
-        private var fileURLBySessionId: [String: URL] = [:]
+        private var fileURLsBySessionId: [String: Set<URL>] = [:]
+        private var resolvedFileURLBySessionId: [String: URL] = [:]
         private var missingSessionIds: Set<String> = []
 
         init(
@@ -536,48 +537,60 @@ enum CostUsageScanner {
             self.files = files
             self.filePaths = Set(files.map(\.path))
             self.roots = roots
-            self.fileURLBySessionId = cachedSessionFiles
             self.checkCancellation = checkCancellation
+            for (sessionId, fileURL) in cachedSessionFiles {
+                self.addCandidate(fileURL: fileURL, sessionId: sessionId)
+            }
         }
 
         func remember(fileURL: URL, sessionId: String?) {
             guard let sessionId, !sessionId.isEmpty else { return }
-            self.fileURLBySessionId[sessionId] = fileURL
+            self.addCandidate(fileURL: fileURL, sessionId: sessionId)
         }
 
         func fileURL(for sessionId: String) throws -> URL? {
-            if let cached = self.fileURLBySessionId[sessionId] {
+            if let cached = self.resolvedFileURLBySessionId[sessionId],
+               FileManager.default.fileExists(atPath: cached.path)
+            {
                 return cached
             }
             if self.missingSessionIds.contains(sessionId) {
                 return nil
             }
 
-            while self.nextUnindexedFile < self.files.count {
-                try self.checkCancellation?()
-                let fileURL = self.files[self.nextUnindexedFile]
-                self.nextUnindexedFile += 1
-                guard let indexedSessionId = try CostUsageScanner.parseCodexSessionIdentifier(
-                    fileURL: fileURL,
-                    checkCancellation: self.checkCancellation)
-                else {
-                    continue
-                }
-                self.fileURLBySessionId[indexedSessionId] = fileURL
-                if indexedSessionId == sessionId {
-                    return fileURL
-                }
+            if !self.didIndexFiles {
+                try self.indexFiles()
             }
-
             if !self.didIndexRoots {
+                // Parent lookup is the exception to the normal report-window scan. A fork may
+                // reference a long-lived ancestor outside the standard lookback, so index the
+                // configured active/archive roots lazily only when ancestry is requested.
                 try self.indexRoots()
-                if let indexed = self.fileURLBySessionId[sessionId] {
-                    return indexed
-                }
+            }
+            if let resolved = self.resolveCandidate(for: sessionId) {
+                self.resolvedFileURLBySessionId[sessionId] = resolved
+                return resolved
             }
 
             self.missingSessionIds.insert(sessionId)
             return nil
+        }
+
+        private func indexFiles() throws {
+            self.didIndexFiles = true
+            for fileURL in self.files {
+                try self.checkCancellation?()
+                if let filenameSessionId = Self.sessionIdFromRolloutFilename(fileURL) {
+                    self.addCandidate(fileURL: fileURL, sessionId: filenameSessionId)
+                    continue
+                }
+                if let indexedSessionId = try CostUsageScanner.parseCodexSessionIdentifier(
+                    fileURL: fileURL,
+                    checkCancellation: self.checkCancellation)
+                {
+                    self.addCandidate(fileURL: fileURL, sessionId: indexedSessionId)
+                }
+            }
         }
 
         private func indexRoots() throws {
@@ -595,15 +608,69 @@ enum CostUsageScanner {
                     try self.checkCancellation?()
                     guard fileURL.pathExtension.lowercased() == "jsonl" else { continue }
                     guard !self.filePaths.contains(fileURL.path) else { continue }
-                    guard let indexedSessionId = try CostUsageScanner.parseCodexSessionIdentifier(
-                        fileURL: fileURL,
-                        checkCancellation: self.checkCancellation)
-                    else {
+                    if let filenameSessionId = Self.sessionIdFromRolloutFilename(fileURL) {
+                        self.addCandidate(fileURL: fileURL, sessionId: filenameSessionId)
                         continue
                     }
-                    self.fileURLBySessionId[indexedSessionId] = fileURL
+                    if let indexedSessionId = try CostUsageScanner.parseCodexSessionIdentifier(
+                        fileURL: fileURL,
+                        checkCancellation: self.checkCancellation)
+                    {
+                        self.addCandidate(fileURL: fileURL, sessionId: indexedSessionId)
+                    }
                 }
             }
+        }
+
+        private func addCandidate(fileURL: URL, sessionId: String) {
+            self.fileURLsBySessionId[sessionId, default: []].insert(fileURL)
+            self.resolvedFileURLBySessionId.removeValue(forKey: sessionId)
+            self.missingSessionIds.remove(sessionId)
+        }
+
+        private func resolveCandidate(for sessionId: String) -> URL? {
+            let candidates = (self.fileURLsBySessionId[sessionId] ?? [])
+                .filter { FileManager.default.fileExists(atPath: $0.path) }
+                .sorted { $0.path < $1.path }
+            guard !candidates.isEmpty else { return nil }
+
+            // Rollout filenames carry the owning session UUID. Copied session metadata can make
+            // several descendants claim the same id, so filename ownership outranks traversal.
+            let filenameOwners = candidates.filter {
+                $0.deletingPathExtension().lastPathComponent.hasSuffix("-\(sessionId)")
+            }
+            if filenameOwners.count == 1 {
+                return filenameOwners[0]
+            }
+            // A rollout canonically owned by another filename UUID may contain copied ancestor
+            // metadata. It is not evidence that the ancestor's own snapshot file exists. Only
+            // metadata-only files (legacy/noncanonical names) may use the unique-candidate
+            // fallback; otherwise fail open and leave the inherited baseline unresolved.
+            let metadataOnlyCandidates = candidates.filter { Self.sessionIdFromRolloutFilename($0) == nil }
+            if metadataOnlyCandidates.count == 1 {
+                return metadataOnlyCandidates[0]
+            }
+
+            CostUsageScanner.log.warning(
+                "Codex cost usage session id has ambiguous file ownership",
+                metadata: [
+                    "sessionId": sessionId,
+                    "candidateCount": "\(candidates.count)",
+                ])
+            return nil
+        }
+
+        static func sessionIdFromRolloutFilename(_ fileURL: URL) -> String? {
+            let stem = fileURL.deletingPathExtension().lastPathComponent
+            // UUIDs have four earlier hyphens, so take the final five components rather than the
+            // final component alone. This is ownership evidence only for canonical rollout names.
+            let components = stem.split(separator: "-")
+            guard components.count >= 5 else { return nil }
+            let uuidComponents = Array(components.suffix(5))
+            guard uuidComponents.map(\.count) == [8, 4, 4, 4, 12],
+                  uuidComponents.joined().allSatisfy(\.isHexDigit)
+            else { return nil }
+            return uuidComponents.joined(separator: "-")
         }
     }
 
@@ -665,7 +732,8 @@ enum CostUsageScanner {
                     metadata: ["sessionId": sessionId, "path": fileURL.path])
                 return nil
             }
-            if parsedSessionId != sessionId {
+            let filenameSessionId = CodexSessionFileIndex.sessionIdFromRolloutFilename(fileURL)
+            if parsedSessionId != sessionId, filenameSessionId != sessionId {
                 CostUsageScanner.log.warning(
                     "Codex cost usage parent session resolved to mismatched session id",
                     metadata: [

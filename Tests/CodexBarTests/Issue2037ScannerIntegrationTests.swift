@@ -2,7 +2,54 @@ import Foundation
 import Testing
 @testable import CodexBarCore
 
+// swiftlint:disable line_length
 struct Issue2037ScannerIntegrationTests {
+    @Test
+    func `child resolves a long lived parent outside the standard lookback`() throws {
+        let env = try CostUsageTestEnvironment()
+        defer { env.cleanup() }
+
+        let parentID = "019f0000-0000-7000-8000-000000000001"
+        let childID = "019f0000-0000-7000-8000-000000000002"
+        let parentDay = try env.makeLocalNoon(year: 2029, month: 11, day: 1)
+        let childDay = try env.makeLocalNoon(year: 2030, month: 1, day: 15)
+        let parentTimestamp = env.isoString(for: parentDay)
+        let childTimestamp = env.isoString(for: childDay)
+        let parent = [
+            #"{"type":"session_meta","timestamp":"\#(parentTimestamp)","payload":{"id":"\#(parentID)","timestamp":"\#(parentTimestamp)"}}"#,
+            #"{"type":"turn_context","timestamp":"\#(parentTimestamp)","payload":{"model":"gpt-5.5"}}"#,
+            #"{"type":"event_msg","timestamp":"\#(parentTimestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":0}}}}"#,
+        ].joined(separator: "\n") + "\n"
+        let child = [
+            #"{"type":"session_meta","timestamp":"\#(childTimestamp)","payload":{"id":"\#(childID)","forked_from_id":"\#(parentID)","timestamp":"\#(childTimestamp)"}}"#,
+            #"{"type":"turn_context","timestamp":"\#(childTimestamp)","payload":{"model":"gpt-5.5"}}"#,
+            #"{"type":"event_msg","timestamp":"\#(childTimestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":0}}}}"#,
+            #"{"type":"event_msg","timestamp":"\#(childTimestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":150,"cached_input_tokens":0,"output_tokens":0}}}}"#,
+        ].joined(separator: "\n") + "\n"
+        _ = try env.writeCodexSessionFile(
+            day: parentDay,
+            filename: "rollout-2029-11-01T12-00-00-\(parentID).jsonl",
+            contents: parent)
+        _ = try env.writeCodexSessionFile(
+            day: childDay,
+            filename: "rollout-2030-01-15T12-00-00-\(childID).jsonl",
+            contents: child)
+
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: env.codexSessionsRoot,
+            cacheRoot: env.cacheRoot)
+        options.forceRescan = true
+        options.refreshMinIntervalSeconds = 0
+        let report = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: childDay,
+            until: childDay,
+            now: childDay,
+            options: options)
+        let total = report.data.reduce(0) { $0 + ($1.inputTokens ?? 0) + ($1.outputTokens ?? 0) }
+        #expect(total == 50)
+    }
+
     /// Locks that `#1164` inherited-totals accounting matches parent-owns-prefix
     /// scanner units for the sanitized ordinary fork family when the parent file
     /// is present in the scan window. Missing-parent / interleaved Ultra shapes
@@ -179,3 +226,5 @@ struct Issue2037ScannerIntegrationTests {
         #expect(scannedUnits == 10)
     }
 }
+
+// swiftlint:enable line_length
