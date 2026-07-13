@@ -4,6 +4,56 @@ import Testing
 
 struct CodexLineageLedgerTests {
     @Test
+    func `fast rollout parser adapts complete token states into a ledger document`() throws {
+        let environment = try CostUsageTestEnvironment()
+        defer { environment.cleanup() }
+        let ownerID = "019f55a1-7f6e-70c0-8e4f-f5bbefa9b7ac"
+        let fileURL = environment.root.appendingPathComponent(
+            "rollout-2026-07-09T12-00-00-\(ownerID).jsonl")
+        let contents = [
+            #"{"type":"session_meta","payload":{"id":"metadata-id","forked_from_id":"parent-id"}}"#,
+            Self.tokenCountLine(
+                timestamp: "2026-07-09T12:00:00Z",
+                last: (input: 100, cached: 40, output: 10),
+                total: (input: 100, cached: 40, output: 10)),
+            Self.tokenCountLine(
+                timestamp: "2026-07-09T12:01:00Z",
+                last: (input: 50, cached: 20, output: 5),
+                total: (input: 150, cached: 60, output: 15)),
+            #"{"type":"event_msg","timestamp":"2026-07-09T12:02:00Z","payload":{"type":"token_count","info":{"#
+                + #""total_token_usage":{"input_tokens":200,"cached_input_tokens":80,"output_tokens":20}}}}"#,
+        ].joined(separator: "\n")
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let document = try CostUsageScanner.parseCodexLineageDocument(fileURL: fileURL)
+
+        #expect(document.ownerID == ownerID)
+        #expect(document.metadataSessionID == "metadata-id")
+        #expect(document.parentSessionID == "parent-id")
+        #expect(document.observations.count == 2)
+        #expect(document.observations[0].last == .init(input: 100, cached: 40, output: 10))
+        #expect(document.observations[1].total == .init(input: 150, cached: 60, output: 15))
+    }
+
+    @Test
+    func `ledger document parsing propagates cancellation`() throws {
+        let environment = try CostUsageTestEnvironment()
+        defer { environment.cleanup() }
+        let fileURL = environment.root.appendingPathComponent("rollout-without-owner.jsonl")
+        try Self.tokenCountLine(
+            timestamp: "2026-07-09T12:00:00Z",
+            last: (input: 100, cached: 0, output: 10),
+            total: (input: 100, cached: 0, output: 10))
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: CancellationError.self) {
+            _ = try CostUsageScanner.parseCodexLineageDocument(
+                fileURL: fileURL,
+                checkCancellation: { throw CancellationError() })
+        }
+    }
+
+    @Test
     func `transitive lineage counts copied observations once`() throws {
         let first = Self.observation(timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
         let second = Self.observation(timestamp: "2026-07-09T12:01:00Z", input: 50, totalInput: 150)
@@ -191,5 +241,16 @@ struct CodexLineageLedgerTests {
                 input: event.total.inputTokens,
                 cached: event.total.cachedInputTokens,
                 output: event.total.outputTokens))
+    }
+
+    private static func tokenCountLine(
+        timestamp: String,
+        last: (input: Int, cached: Int, output: Int),
+        total: (input: Int, cached: Int, output: Int)) -> String
+    {
+        #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"#
+            + #""last_token_usage":{"input_tokens":\#(last.input),"cached_input_tokens":\#(last.cached),"#
+            + #""output_tokens":\#(last.output)},"total_token_usage":{"input_tokens":\#(total.input),"#
+            + #""cached_input_tokens":\#(total.cached),"output_tokens":\#(total.output)}}}}"#
     }
 }
