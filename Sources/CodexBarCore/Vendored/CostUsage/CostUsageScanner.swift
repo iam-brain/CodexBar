@@ -28,6 +28,7 @@ enum CostUsageScanner {
         var codexTraceDatabaseURL: URL?
         var refreshMinIntervalSeconds: TimeInterval = 60
         var claudeLogProviderFilter: ClaudeLogProviderFilter = .all
+        var codexLineageAccountingMode: CodexLineageAccountingMode = .defaultMode
         /// Force a full rescan, ignoring per-file cache and incremental offsets.
         var forceRescan: Bool = false
 
@@ -37,6 +38,7 @@ enum CostUsageScanner {
             cacheRoot: URL? = nil,
             codexTraceDatabaseURL: URL? = nil,
             claudeLogProviderFilter: ClaudeLogProviderFilter = .all,
+            codexLineageAccountingMode: CodexLineageAccountingMode = .defaultMode,
             forceRescan: Bool = false)
         {
             self.codexSessionsRoot = codexSessionsRoot
@@ -44,6 +46,7 @@ enum CostUsageScanner {
             self.cacheRoot = cacheRoot
             self.codexTraceDatabaseURL = codexTraceDatabaseURL
             self.claudeLogProviderFilter = claudeLogProviderFilter
+            self.codexLineageAccountingMode = codexLineageAccountingMode
             self.forceRescan = forceRescan
         }
     }
@@ -2613,7 +2616,11 @@ enum CostUsageScanner {
         options: Options,
         checkCancellation: CancellationCheck?) throws -> CostUsageDailyReport
     {
-        var cache = CostUsageCacheIO.load(provider: .codex, cacheRoot: options.cacheRoot)
+        let accountingProducerKey = Self.codexAccountingProducerKey(mode: options.codexLineageAccountingMode)
+        var cache = CostUsageCacheIO.load(
+            provider: .codex,
+            cacheRoot: options.cacheRoot,
+            producerKey: accountingProducerKey)
         let nowMs = Int64(now.timeIntervalSince1970 * 1000)
         let plan = Self.makeCodexRefreshPlan(cache: cache, range: range, now: now, nowMs: nowMs, options: options)
 
@@ -2740,12 +2747,13 @@ enum CostUsageScanner {
                 ? [cachedUntilKey, range.scanUntilKey].compactMap(\.self).max() ?? range.scanUntilKey
                 : range.scanUntilKey
             Self.pruneDays(cache: &cache, sinceKey: retainedSinceKey, untilKey: retainedUntilKey)
-            try Self.recordCodexLineageShadow(
+            try Self.applyCodexLineageAccounting(
+                mode: options.codexLineageAccountingMode,
                 files: files,
                 roots: plan.roots,
-                cache: cache,
-                range: range,
+                cache: &cache,
                 checkCancellation: checkCancellation)
+            Self.pruneDays(cache: &cache, sinceKey: retainedSinceKey, untilKey: retainedUntilKey)
             cache.roots = plan.rootsFingerprint
             cache.scanSinceKey = retainedSinceKey
             cache.scanUntilKey = retainedUntilKey
@@ -2768,7 +2776,11 @@ enum CostUsageScanner {
             }
             cache.lastScanUnixMs = nowMs
             try checkCancellation?()
-            CostUsageCacheIO.save(provider: .codex, cache: cache, cacheRoot: options.cacheRoot)
+            CostUsageCacheIO.save(
+                provider: .codex,
+                cache: cache,
+                cacheRoot: options.cacheRoot,
+                producerKey: accountingProducerKey)
         }
 
         return Self.buildCodexReportFromCache(
@@ -2779,48 +2791,93 @@ enum CostUsageScanner {
             priorityTurns: plan.priorityTurns)
     }
 
-    private static func recordCodexLineageShadow(
+    static func codexAccountingProducerKey(mode: CodexLineageAccountingMode) -> String {
+        let base = CostUsageCacheIO.currentProducerKey(provider: .codex) ?? "codex"
+        return mode == .legacy ? base : base + ":" + mode.producerKeySuffix
+    }
+
+    static func shouldRunCodexLineage(mode: CodexLineageAccountingMode) -> Bool {
+        mode != .legacy
+    }
+
+    private static func applyCodexLineageAccounting(
+        mode: CodexLineageAccountingMode,
         files: [URL],
         roots: [URL],
-        cache: CostUsageCache,
-        range: CostUsageDayRange,
+        cache: inout CostUsageCache,
         checkCancellation: CancellationCheck?) throws
     {
+        guard self.shouldRunCodexLineage(mode: mode) else { return }
         do {
-            let report = try CodexLineageShadow.run(
+            let discovery = try CodexLineageTwoPassDiscovery.discover(
                 includedFiles: files,
                 roots: roots,
-                legacyDays: cache.days,
-                dayRange: range.sinceKey...range.untilKey,
+                checkCancellation: checkCancellation)
+            let families = try CodexLineageEngine.prepareDescriptorFamilies(
+                descriptors: discovery.descriptors,
+                unresolvedParents: discovery.unresolvedParents,
+                checkCancellation: checkCancellation)
+            let lineage = try CodexLineageEngine.reconcileStreaming(
+                families: families,
                 localTimeZone: .current,
                 checkCancellation: checkCancellation)
-            self.log.info(
-                "Codex lineage shadow comparison completed",
+            let resultsByStableID = Dictionary(uniqueKeysWithValues: lineage.families.map { ($0.stableID, $0) })
+            let contained = families.compactMap { family -> CodexLineageAccountingSelector.ContainedFamily? in
+                guard let result = resultsByStableID[family.stableID], case .contained = result.quality else {
+                    return nil
+                }
+                let documents = family.descriptors.compactMap { descriptor ->
+                    CodexLineageAccountingSelector.ContainedDocument? in
+                    guard let days = cache.files[descriptor.fileURL.path]?.days else { return nil }
+                    let identity = descriptor.scopeID + "\u{0}"
+                        + (descriptor.metadataSessionID ?? descriptor.ownerID).lowercased()
+                    return .init(identity: identity, days: days)
+                }
+                guard documents.count == family.descriptors.count else { return nil }
+                return .init(documents: documents)
+            }
+            let expectedContainedCount = lineage.families.count {
+                if case .contained = $0.quality {
+                    return true
+                }
+                return false
+            }
+            if mode == .lineage, contained.count != expectedContainedCount {
+                throw CodexLineageAccountingSelector.SelectionError.missingContainedFamilyEvidence
+            }
+            let selection = CodexLineageAccountingSelector.select(
+                mode: mode,
+                legacyDays: cache.days,
+                primaryRows: lineage.report.localRows,
+                containedFamilies: contained)
+            try checkCancellation?()
+
+            #if DEBUG
+            self.log.debug(
+                "Codex lineage accounting comparison completed",
                 metadata: [
-                    "accepted": "\(report.acceptedObservationCount)",
-                    "components": "\(report.componentCount)",
-                    "days": "\(report.days.count)",
-                    "duplicates": "\(report.duplicateObservationCount)",
-                    "referencedParents": "\(report.referencedParentDocumentCount)",
-                    "rejected": "\(report.rejectedObservationCount)",
-                    "unresolvedParents": "\(report.unresolvedParentCount)",
+                    "containedFamilies": "\(contained.count)",
+                    "families": "\(lineage.diagnostics.familyCount)",
+                    "mode": mode.rawValue,
+                    "recomputedFamilies": "\(lineage.diagnostics.recomputedFamilyCount)",
                 ])
-            for day in report.days where day.delta != .zero {
-                self.log.info(
-                    "Codex lineage shadow daily difference",
-                    metadata: [
-                        "cachedDelta": "\(day.delta.cached)",
-                        "day": "\(day.day)",
-                        "inputDelta": "\(day.delta.input)",
-                        "outputDelta": "\(day.delta.output)",
-                    ])
+            #endif
+
+            if selection.usedLineageAuthority {
+                cache.days = selection.days
+                // Legacy per-file rows are not valid pricing/project evidence for ledger totals.
+                // Dropping them also makes rollback and the next mode-specific refresh rebuild safely.
+                cache.files = [:]
             }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            self.log.warning(
-                "Codex lineage shadow comparison failed",
-                metadata: ["errorType": "\(type(of: error))"])
+            if mode == .lineage {
+                throw error
+            }
+            #if DEBUG
+            self.log.debug("Codex lineage shadow comparison failed; legacy totals remain authoritative")
+            #endif
         }
     }
 
