@@ -98,6 +98,13 @@ enum CostUsageScanner {
         let totals: CostUsageCodexTotals
     }
 
+    private struct CodexParsedTokenEvidence {
+        let sessionId: String?
+        let forkedFromId: String?
+        let snapshots: [CodexTimestampedTotals]
+        let observations: [CodexLineageLedger.Observation]
+    }
+
     enum CodexForkBaseline {
         case resolved(CostUsageCodexTotals?)
         case unresolved
@@ -1680,13 +1687,13 @@ enum CostUsageScanner {
 
     private static func parseCodexTokenSnapshots(
         fileURL: URL,
-        checkCancellation: CancellationCheck? = nil) throws -> (
-        sessionId: String?,
-        snapshots: [CodexTimestampedTotals])
+        checkCancellation: CancellationCheck? = nil) throws -> CodexParsedTokenEvidence
     {
         var sessionId: String?
+        var forkedFromId: String?
         var accumulator = CodexSnapshotAccumulator()
         var snapshots: [CodexTimestampedTotals] = []
+        var observations: [CodexLineageLedger.Observation] = []
         var warnedAboutUnparsedTimestamp = false
 
         func parsedSnapshotDate(timestamp: String) -> Date? {
@@ -1708,6 +1715,12 @@ enum CostUsageScanner {
                 timestamp: timestamp,
                 date: parsedSnapshotDate(timestamp: timestamp),
                 totals: counted))
+            if let last, let total {
+                observations.append(CodexLineageLedger.Observation(
+                    timestamp: timestamp,
+                    last: Self.lineageTotals(last),
+                    total: Self.lineageTotals(total)))
+            }
         }
 
         do {
@@ -1723,6 +1736,9 @@ enum CostUsageScanner {
                         case let .sessionMeta(metadata):
                             if sessionId == nil {
                                 sessionId = metadata.sessionId
+                            }
+                            if forkedFromId == nil {
+                                forkedFromId = metadata.forkedFromId
                             }
                         case let .tokenCount(record):
                             appendSnapshot(timestamp: record.timestamp, last: record.last, total: record.total)
@@ -1745,6 +1761,9 @@ enum CostUsageScanner {
                                     ?? obj["session_id"] as? String
                                     ?? obj["sessionId"] as? String
                                     ?? obj["id"] as? String
+                            }
+                            if forkedFromId == nil {
+                                forkedFromId = Self.codexForkParentId(from: payload)
                             }
                             return
                         }
@@ -1785,7 +1804,36 @@ enum CostUsageScanner {
                 metadata: ["path": fileURL.path, "error": error.localizedDescription])
         }
 
-        return (sessionId, snapshots)
+        return CodexParsedTokenEvidence(
+            sessionId: sessionId,
+            forkedFromId: forkedFromId,
+            snapshots: snapshots,
+            observations: observations)
+    }
+
+    static func parseCodexLineageDocument(
+        fileURL: URL,
+        checkCancellation: CancellationCheck? = nil) throws -> CodexLineageLedger.Document
+    {
+        let parsed = try Self.parseCodexTokenSnapshots(
+            fileURL: fileURL,
+            checkCancellation: checkCancellation)
+        return CodexLineageLedger.Document(
+            ownerID: Self.codexRolloutOwnerID(fileURL: fileURL) ?? parsed.sessionId ?? fileURL.standardizedFileURL.path,
+            metadataSessionID: parsed.sessionId,
+            parentSessionID: parsed.forkedFromId,
+            observations: parsed.observations)
+    }
+
+    private static func lineageTotals(_ totals: CostUsageCodexTotals) -> CodexLineageLedger.Totals {
+        CodexLineageLedger.Totals(input: totals.input, cached: totals.cached, output: totals.output)
+    }
+
+    private static func codexRolloutOwnerID(fileURL: URL) -> String? {
+        let stem = fileURL.deletingPathExtension().lastPathComponent
+        guard stem.count >= 36 else { return nil }
+        let candidate = String(stem.suffix(36))
+        return UUID(uuidString: candidate) == nil ? nil : candidate.lowercased()
     }
 
     static func parseCodexFile(
