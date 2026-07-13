@@ -128,6 +128,19 @@ enum CodexLineageLedger {
         localTimeZone: TimeZone,
         checkCancellation: CostUsageScanner.CancellationCheck? = nil) throws -> Report
     {
+        try self.reconcile(
+            documents: documents,
+            localTimeZone: localTimeZone,
+            checkCancellation: checkCancellation,
+            validatedDates: [:])
+    }
+
+    private static func reconcile(
+        documents: [Document],
+        localTimeZone: TimeZone,
+        checkCancellation: CostUsageScanner.CancellationCheck?,
+        validatedDates: [String: Date]) throws -> Report
+    {
         var graph = DisjointSet()
         for document in documents {
             try checkCancellation?()
@@ -142,42 +155,51 @@ enum CodexLineageLedger {
             }
         }
 
-        var acceptedByComponent: [String: [Fingerprint: AcceptedObservation]] = [:]
-        var physicalObservationCount = 0
+        var documentsByComponent: [String: [Document]] = [:]
         for document in documents {
             try checkCancellation?()
             let componentID = graph.find(Self.scoped(document.ownerID, document: document))
-            var accepted = acceptedByComponent[componentID] ?? [:]
-            for observation in document.observations {
-                try checkCancellation?()
-                physicalObservationCount += 1
-                let date = try Self.date(from: observation.timestamp)
-                let fingerprint = Fingerprint(last: observation.last, total: observation.total)
-                if let existing = accepted[fingerprint] {
-                    if existing.date < date {
-                        continue
-                    }
-                    if existing.date == date,
-                       !Self.shouldPreferModel(observation.model, over: existing.model)
-                    {
-                        continue
-                    }
-                }
-                accepted[fingerprint] = AcceptedObservation(
-                    date: date,
-                    model: observation.model,
-                    last: observation.last)
-            }
-            acceptedByComponent[componentID] = accepted
+            documentsByComponent[componentID, default: []].append(document)
         }
 
+        var physicalObservationCount = 0
+        var parsedDates = validatedDates
         var utcDays: [String: Totals] = [:]
         var localDays: [String: Totals] = [:]
         var utcRows: [DailyRowKey: DailyRowValue] = [:]
         var localRows: [DailyRowKey: DailyRowValue] = [:]
         var acceptedObservationCount = 0
-        for accepted in acceptedByComponent.values {
+        for componentDocuments in documentsByComponent.values {
             try checkCancellation?()
+            var accepted: [Fingerprint: AcceptedObservation] = [:]
+            for document in componentDocuments {
+                for observation in document.observations {
+                    try checkCancellation?()
+                    physicalObservationCount += 1
+                    let date: Date
+                    if let cached = parsedDates[observation.timestamp] {
+                        date = cached
+                    } else {
+                        date = try Self.date(from: observation.timestamp)
+                        parsedDates[observation.timestamp] = date
+                    }
+                    let fingerprint = Fingerprint(last: observation.last, total: observation.total)
+                    if let existing = accepted[fingerprint] {
+                        if existing.date < date {
+                            continue
+                        }
+                        if existing.date == date,
+                           !Self.shouldPreferModel(observation.model, over: existing.model)
+                        {
+                            continue
+                        }
+                    }
+                    accepted[fingerprint] = AcceptedObservation(
+                        date: date,
+                        model: observation.model,
+                        last: observation.last)
+                }
+            }
             acceptedObservationCount += accepted.count
             for observation in accepted.values {
                 try checkCancellation?()
@@ -230,9 +252,10 @@ enum CodexLineageLedger {
         var primaryDocuments: [Document] = []
         var containedDocuments: [Document] = []
         var families: [FamilyDisposition] = []
+        var validatedDates: [String: Date] = [:]
         for familyDocuments in documentsByFamily.values {
             try checkCancellation?()
-            let reasons = Self.containmentReasons(in: familyDocuments)
+            let reasons = Self.containmentReasons(in: familyDocuments, validatedDates: &validatedDates)
             let owners = Set(familyDocuments.map(\.ownerID))
             let unresolved = familyDocuments.contains { document in
                 guard let parent = Self.nonEmpty(document.parentSessionID) else { return false }
@@ -263,7 +286,8 @@ enum CodexLineageLedger {
             primary: Self.reconcile(
                 documents: primaryDocuments,
                 localTimeZone: localTimeZone,
-                checkCancellation: checkCancellation),
+                checkCancellation: checkCancellation,
+                validatedDates: validatedDates),
             families: families,
             containedDocuments: containedDocuments)
     }
@@ -336,14 +360,25 @@ enum CodexLineageLedger {
         ].joined(separator: "\u{0}")
     }
 
-    private static func containmentReasons(in documents: [Document]) -> Set<ContainmentReason> {
+    private static func containmentReasons(
+        in documents: [Document],
+        validatedDates: inout [String: Date]) -> Set<ContainmentReason>
+    {
         var reasons: Set<ContainmentReason> = []
         if documents.contains(where: { $0.incompleteObservationCount > 0 }) {
             reasons.insert(.incompleteObservation)
         }
-        if documents.flatMap(\.observations)
-            .contains(where: { CostUsageScanner.dateFromTimestamp($0.timestamp) == nil })
-        {
+        var hasMalformedTimestamp = false
+        timestampValidation: for document in documents {
+            for observation in document.observations where validatedDates[observation.timestamp] == nil {
+                guard let date = CostUsageScanner.dateFromTimestamp(observation.timestamp) else {
+                    hasMalformedTimestamp = true
+                    break timestampValidation
+                }
+                validatedDates[observation.timestamp] = date
+            }
+        }
+        if hasMalformedTimestamp {
             reasons.insert(.malformedTimestamp)
         }
         let ownerGroups = Dictionary(grouping: documents, by: \.ownerID)
