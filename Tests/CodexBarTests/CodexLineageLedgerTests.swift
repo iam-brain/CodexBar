@@ -12,7 +12,7 @@ struct CodexLineageLedgerTests {
             "rollout-2026-07-09T12-00-00-\(ownerID).jsonl")
         let contents = [
             #"{"type":"session_meta","payload":{"id":"metadata-id","forked_from_id":"parent-id"}}"#,
-            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-a"}}"#,
+            #"{"type":"turn_context","payload":{"model":"gpt-5.4"}}"#,
             Self.tokenCountLine(
                 timestamp: "2026-07-09T12:00:00Z",
                 last: (input: 100, cached: 40, output: 10),
@@ -32,9 +32,114 @@ struct CodexLineageLedgerTests {
         #expect(document.metadataSessionID == "metadata-id")
         #expect(document.parentSessionID == "parent-id")
         #expect(document.observations.count == 2)
-        #expect(document.observations.map(\.eventID) == ["turn-a:0", "turn-a:1"])
+        #expect(document.observations[0].model == "gpt-5.4")
         #expect(document.observations[0].last == .init(input: 100, cached: 40, output: 10))
         #expect(document.observations[1].total == .init(input: 150, cached: 60, output: 15))
+    }
+
+    @Test
+    func `daily rows preserve model token and pricing dimensions`() throws {
+        let priced = Self.observation(
+            timestamp: "2026-07-10T02:00:00Z",
+            model: "gpt-5.4",
+            input: 100,
+            cached: 40,
+            output: 10,
+            totalInput: 100)
+        let unpriced = Self.observation(
+            timestamp: "2026-07-10T03:00:00Z",
+            model: "future-model",
+            input: 50,
+            output: 5,
+            totalInput: 150)
+
+        let report = try CodexLineageLedger.reconcile(
+            documents: [Self.document(owner: "root", observations: [priced, unpriced])],
+            localTimeZone: #require(TimeZone(identifier: "America/New_York")))
+
+        #expect(report.utcRows.map(\.day) == ["2026-07-10", "2026-07-10"])
+        #expect(report.localRows.map(\.day) == ["2026-07-09", "2026-07-09"])
+        #expect(report.utcRows[0].model == "future-model")
+        #expect(report.utcRows[0].totals == .init(input: 50, cached: 0, output: 5))
+        #expect(report.utcRows[0].isPriced == false)
+        #expect(report.utcRows[1].model == "gpt-5.4")
+        #expect(report.utcRows[1].isPriced)
+        #expect(report.utcRows[1].costUSD != nil)
+    }
+
+    @Test
+    func `token event model overrides older turn context`() throws {
+        let environment = try CostUsageTestEnvironment()
+        let ownerID = "11111111-1111-4111-8111-111111111111"
+        let file = environment.codexSessionsRoot.appendingPathComponent(
+            "rollout-2026-07-09T12-00-00-\(ownerID).jsonl")
+        let contents = [
+            #"{"type":"turn_context","payload":{"model":"gpt-5.4-mini"}}"#,
+            Self.tokenCountLine(
+                timestamp: "2026-07-09T12:00:00Z",
+                model: "gpt-5.4",
+                last: (input: 100, cached: 40, output: 10),
+                total: (input: 100, cached: 40, output: 10)),
+        ].joined(separator: "\n")
+        try FileManager.default.createDirectory(at: environment.codexSessionsRoot, withIntermediateDirectories: true)
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+
+        let document = try CostUsageScanner.parseCodexLineageDocument(fileURL: file)
+
+        #expect(document.observations.map(\.model) == ["gpt-5.4"])
+    }
+
+    @Test
+    func `equal-time duplicate prefers attributed model deterministically`() throws {
+        let unknown = Self.observation(timestamp: "2026-07-10T03:00:00Z", input: 50, totalInput: 50)
+        let attributed = Self.observation(
+            timestamp: "2026-07-10T03:00:00Z",
+            model: "gpt-5.4",
+            input: 50,
+            totalInput: 50)
+
+        let report = try CodexLineageLedger.reconcile(
+            documents: [
+                Self.document(owner: "child", parent: "root", observations: [unknown]),
+                Self.document(owner: "root", observations: [attributed]),
+            ],
+            localTimeZone: .gmt)
+
+        #expect(report.acceptedObservationCount == 1)
+        #expect(report.utcRows.map(\.model) == ["gpt-5.4"])
+        #expect(report.utcRows[0].isPriced)
+    }
+
+    @Test
+    func `daily rows price long context observations independently`() throws {
+        let first = Self.observation(
+            timestamp: "2026-07-10T03:00:00Z",
+            model: "gpt-5.4",
+            input: 272_001,
+            cached: 100_000,
+            output: 5,
+            totalInput: 272_001)
+        let second = Self.observation(
+            timestamp: "2026-07-10T04:00:00Z",
+            model: "gpt-5.4",
+            input: 100,
+            output: 5,
+            totalInput: 272_101)
+        let expected = try #require(CostUsagePricing.codexCostUSD(
+            model: "gpt-5.4",
+            inputTokens: 272_001,
+            cachedInputTokens: 100_000,
+            outputTokens: 5)) + #require(CostUsagePricing.codexCostUSD(
+            model: "gpt-5.4",
+            inputTokens: 100,
+            cachedInputTokens: 0,
+            outputTokens: 5))
+
+        let report = try CodexLineageLedger.reconcile(
+            documents: [Self.document(owner: "root", observations: [first, second])],
+            localTimeZone: .gmt)
+
+        #expect(try abs(#require(report.utcRows.first?.costUSD) - expected) < 0.000001)
     }
 
     @Test
@@ -95,22 +200,6 @@ struct CodexLineageLedgerTests {
         #expect(report.componentCount == 2)
         #expect(report.acceptedObservationCount == 2)
         #expect(report.duplicateObservationCount == 0)
-    }
-
-    @Test
-    func `copy stable identities preserve independent equal observations`() throws {
-        let copied = Self.observation(eventID: "turn-a:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
-        let independent = Self.observation(eventID: "turn-b:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
-        let report = try CodexLineageLedger.reconcile(
-            documents: [
-                Self.document(owner: "root", observations: [copied]),
-                Self.document(owner: "child", parent: "root", observations: [copied, independent]),
-            ],
-            localTimeZone: .gmt)
-
-        #expect(report.utcDays["2026-07-09"]?.input == 200)
-        #expect(report.acceptedObservationCount == 2)
-        #expect(report.duplicateObservationCount == 1)
     }
 
     @Test
@@ -234,16 +323,16 @@ struct CodexLineageLedgerTests {
     }
 
     private static func observation(
-        eventID: String? = nil,
         timestamp: String,
+        model: String = CostUsagePricing.codexUnattributedModel,
         input: Int,
         cached: Int = 0,
         output: Int = 0,
         totalInput: Int) -> CodexLineageLedger.Observation
     {
         .init(
-            eventID: eventID,
             timestamp: timestamp,
+            model: model,
             last: .init(input: input, cached: cached, output: output),
             total: .init(input: totalInput, cached: cached, output: output))
     }
@@ -265,12 +354,14 @@ struct CodexLineageLedgerTests {
 
     private static func tokenCountLine(
         timestamp: String,
+        model: String? = nil,
         last: (input: Int, cached: Int, output: Int),
         total: (input: Int, cached: Int, output: Int)) -> String
     {
-        #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"#
+        let modelJSON = model.map { #", "model":"\#($0)""# } ?? ""
+        return #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"#
             + #""last_token_usage":{"input_tokens":\#(last.input),"cached_input_tokens":\#(last.cached),"#
             + #""output_tokens":\#(last.output)},"total_token_usage":{"input_tokens":\#(total.input),"#
-            + #""cached_input_tokens":\#(total.cached),"output_tokens":\#(total.output)}}}}"#
+            + #""cached_input_tokens":\#(total.cached),"output_tokens":\#(total.output)}\#(modelJSON)}}}"#
     }
 }

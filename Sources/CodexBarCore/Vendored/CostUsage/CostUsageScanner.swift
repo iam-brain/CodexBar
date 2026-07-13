@@ -1685,12 +1685,14 @@ enum CostUsageScanner {
         return nil
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private static func parseCodexTokenSnapshots(
         fileURL: URL,
         checkCancellation: CancellationCheck? = nil) throws -> CodexParsedTokenEvidence
     {
         var sessionId: String?
         var forkedFromId: String?
+        var currentModel: String?
         var accumulator = CodexSnapshotAccumulator()
         var snapshots: [CodexTimestampedTotals] = []
         var observations: [CodexLineageLedger.Observation] = []
@@ -1712,6 +1714,7 @@ enum CostUsageScanner {
 
         func appendSnapshot(
             timestamp: String,
+            model: String?,
             turnID: String?,
             last: CostUsageCodexTotals?,
             total: CostUsageCodexTotals?)
@@ -1731,6 +1734,9 @@ enum CostUsageScanner {
                 observations.append(CodexLineageLedger.Observation(
                     eventID: eventID,
                     timestamp: timestamp,
+                    model: Self.codexModelEvidence(model)
+                        ?? Self.codexModelEvidence(currentModel)
+                        ?? CostUsagePricing.codexUnattributedModel,
                     last: Self.lineageTotals(last),
                     total: Self.lineageTotals(total)))
             }
@@ -1756,13 +1762,16 @@ enum CostUsageScanner {
                         case let .tokenCount(record):
                             appendSnapshot(
                                 timestamp: record.timestamp,
+                                model: record.model,
                                 turnID: record.turnID ?? currentTurnID,
                                 last: record.last,
                                 total: record.total)
+                        case let .turnContext(model):
+                            if let model {
+                                currentModel = model
+                            }
                         case let .taskStarted(turnID):
                             currentTurnID = turnID
-                        case .turnContext:
-                            break
                         }
                         return
                     }
@@ -1783,6 +1792,20 @@ enum CostUsageScanner {
                             }
                             if forkedFromId == nil {
                                 forkedFromId = Self.codexForkParentId(from: payload)
+                            }
+                            return
+                        }
+
+                        if obj["type"] as? String == "turn_context" {
+                            let payload = obj["payload"] as? [String: Any]
+                            let info = payload?["info"] as? [String: Any]
+                            if let model = Self.codexTurnContextModel(
+                                payloadModel: payload?["model"] as? String,
+                                payloadModelName: payload?["model_name"] as? String,
+                                infoModel: info?["model"] as? String,
+                                infoModelName: info?["model_name"] as? String)
+                            {
+                                currentModel = model
                             }
                             return
                         }
@@ -1816,8 +1839,13 @@ enum CostUsageScanner {
                                 cached: max(0, toInt($0["cached_input_tokens"] ?? $0["cache_read_input_tokens"])),
                                 output: max(0, toInt($0["output_tokens"])))
                         }
+                        let model = Self.codexModelEvidence(info["model"] as? String)
+                            ?? Self.codexModelEvidence(info["model_name"] as? String)
+                            ?? Self.codexModelEvidence(payload["model"] as? String)
+                            ?? Self.codexModelEvidence(obj["model"] as? String)
                         appendSnapshot(
                             timestamp: timestamp,
+                            model: model,
                             turnID: Self.codexTurnID(from: payload) ?? currentTurnID,
                             last: last,
                             total: total)
