@@ -92,6 +92,32 @@ struct CodexLineageDiscoveryTests {
         #expect(report.unresolvedParentIDs.isEmpty)
     }
 
+    @Test
+    func `retained parent metadata does not hide the physical parent rollout`() throws {
+        let environment = try CostUsageTestEnvironment()
+        defer { environment.cleanup() }
+        let parentID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        _ = try Self.writeRollout(
+            root: environment.codexArchivedSessionsRoot,
+            relativeDirectory: "",
+            ownerID: parentID,
+            metadataID: parentID)
+        let child = try Self.writeRollout(
+            root: environment.codexSessionsRoot,
+            relativeDirectory: "2026/07/09",
+            ownerID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            metadataID: parentID,
+            parentID: parentID)
+
+        let report = try CodexLineageDiscovery.discover(
+            includedFiles: [child],
+            roots: [environment.codexSessionsRoot, environment.codexArchivedSessionsRoot])
+
+        #expect(Set(report.documents.map(\.ownerID)) == [parentID, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"])
+        #expect(report.referencedParentDocumentCount == 1)
+        #expect(report.unresolvedParentIDs.isEmpty)
+    }
+
     private static func writeRollout(
         root: URL,
         relativeDirectory: String,

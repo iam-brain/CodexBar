@@ -24,9 +24,6 @@ enum CodexLineageDiscovery {
         func remember(_ document: CodexLineageLedger.Document) {
             documents.append(document)
             knownIDs.insert(Self.canonicalSessionID(document.ownerID))
-            if let metadataSessionID = Self.nonEmpty(document.metadataSessionID) {
-                knownIDs.insert(Self.canonicalSessionID(metadataSessionID))
-            }
             if let parentSessionID = Self.nonEmpty(document.parentSessionID) {
                 pendingParentIDs.append(Self.canonicalSessionID(parentSessionID))
             }
@@ -60,8 +57,7 @@ enum CodexLineageDiscovery {
                 fileURL: parentURL,
                 checkCancellation: checkCancellation)
             let ownerID = Self.canonicalSessionID(parent.ownerID)
-            let metadataSessionID = parent.metadataSessionID.map(Self.canonicalSessionID)
-            guard ownerID == parentID || metadataSessionID == parentID else {
+            guard ownerID == parentID else {
                 unresolvedParentIDs.insert(parentID)
                 continue
             }
@@ -122,13 +118,6 @@ enum CodexLineageDiscovery {
                 try self.checkCancellation?()
                 if let ownerID = CostUsageScanner.codexRolloutOwnerID(fileURL: fileURL) {
                     let canonicalID = CodexLineageDiscovery.canonicalSessionID(ownerID)
-                    self.filesByID[canonicalID] = self.filesByID[canonicalID] ?? fileURL
-                }
-                if let metadataID = try CostUsageScanner.parseCodexSessionIdentifier(
-                    fileURL: fileURL,
-                    checkCancellation: self.checkCancellation)
-                {
-                    let canonicalID = CodexLineageDiscovery.canonicalSessionID(metadataID)
                     self.filesByID[canonicalID] = self.filesByID[canonicalID] ?? fileURL
                 }
             }
