@@ -12,6 +12,7 @@ struct CodexLineageLedgerTests {
             "rollout-2026-07-09T12-00-00-\(ownerID).jsonl")
         let contents = [
             #"{"type":"session_meta","payload":{"id":"metadata-id","forked_from_id":"parent-id"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-a"}}"#,
             Self.tokenCountLine(
                 timestamp: "2026-07-09T12:00:00Z",
                 last: (input: 100, cached: 40, output: 10),
@@ -31,6 +32,7 @@ struct CodexLineageLedgerTests {
         #expect(document.metadataSessionID == "metadata-id")
         #expect(document.parentSessionID == "parent-id")
         #expect(document.observations.count == 2)
+        #expect(document.observations.map(\.eventID) == ["turn-a:0", "turn-a:1"])
         #expect(document.observations[0].last == .init(input: 100, cached: 40, output: 10))
         #expect(document.observations[1].total == .init(input: 150, cached: 60, output: 15))
     }
@@ -93,6 +95,22 @@ struct CodexLineageLedgerTests {
         #expect(report.componentCount == 2)
         #expect(report.acceptedObservationCount == 2)
         #expect(report.duplicateObservationCount == 0)
+    }
+
+    @Test
+    func `copy stable identities preserve independent equal observations`() throws {
+        let copied = Self.observation(eventID: "turn-a:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
+        let independent = Self.observation(eventID: "turn-b:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
+        let report = try CodexLineageLedger.reconcile(
+            documents: [
+                Self.document(owner: "root", observations: [copied]),
+                Self.document(owner: "child", parent: "root", observations: [copied, independent]),
+            ],
+            localTimeZone: .gmt)
+
+        #expect(report.utcDays["2026-07-09"]?.input == 200)
+        #expect(report.acceptedObservationCount == 2)
+        #expect(report.duplicateObservationCount == 1)
     }
 
     @Test
@@ -216,6 +234,7 @@ struct CodexLineageLedgerTests {
     }
 
     private static func observation(
+        eventID: String? = nil,
         timestamp: String,
         input: Int,
         cached: Int = 0,
@@ -223,6 +242,7 @@ struct CodexLineageLedgerTests {
         totalInput: Int) -> CodexLineageLedger.Observation
     {
         .init(
+            eventID: eventID,
             timestamp: timestamp,
             last: .init(input: input, cached: cached, output: output),
             total: .init(input: totalInput, cached: cached, output: output))

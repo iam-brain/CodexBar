@@ -1695,6 +1695,8 @@ enum CostUsageScanner {
         var snapshots: [CodexTimestampedTotals] = []
         var observations: [CodexLineageLedger.Observation] = []
         var warnedAboutUnparsedTimestamp = false
+        var currentTurnID: String?
+        var tokenEventCountByTurn: [String: Int] = [:]
 
         func parsedSnapshotDate(timestamp: String) -> Date? {
             let date = Self.dateFromTimestamp(timestamp)
@@ -1708,15 +1710,26 @@ enum CostUsageScanner {
             return date
         }
 
-        func appendSnapshot(timestamp: String, last: CostUsageCodexTotals?, total: CostUsageCodexTotals?) {
+        func appendSnapshot(
+            timestamp: String,
+            turnID: String?,
+            last: CostUsageCodexTotals?,
+            total: CostUsageCodexTotals?)
+        {
             guard last != nil || total != nil else { return }
             let counted = accumulator.apply(last: last, total: total)
             snapshots.append(CodexTimestampedTotals(
                 timestamp: timestamp,
                 date: parsedSnapshotDate(timestamp: timestamp),
                 totals: counted))
+            let eventID = turnID.map { turnID in
+                let ordinal = tokenEventCountByTurn[turnID, default: 0]
+                tokenEventCountByTurn[turnID] = ordinal + 1
+                return "\(turnID):\(ordinal)"
+            }
             if let last, let total {
                 observations.append(CodexLineageLedger.Observation(
+                    eventID: eventID,
                     timestamp: timestamp,
                     last: Self.lineageTotals(last),
                     total: Self.lineageTotals(total)))
@@ -1741,8 +1754,14 @@ enum CostUsageScanner {
                                 forkedFromId = metadata.forkedFromId
                             }
                         case let .tokenCount(record):
-                            appendSnapshot(timestamp: record.timestamp, last: record.last, total: record.total)
-                        case .turnContext, .taskStarted:
+                            appendSnapshot(
+                                timestamp: record.timestamp,
+                                turnID: record.turnID ?? currentTurnID,
+                                last: record.last,
+                                total: record.total)
+                        case let .taskStarted(turnID):
+                            currentTurnID = turnID
+                        case .turnContext:
                             break
                         }
                         return
@@ -1770,6 +1789,10 @@ enum CostUsageScanner {
 
                         guard obj["type"] as? String == "event_msg" else { return }
                         guard let payload = obj["payload"] as? [String: Any] else { return }
+                        if payload["type"] as? String == "task_started" {
+                            currentTurnID = Self.codexTurnID(from: payload)
+                            return
+                        }
                         guard payload["type"] as? String == "token_count" else { return }
                         guard let info = payload["info"] as? [String: Any] else { return }
                         guard let timestamp = obj["timestamp"] as? String else { return }
@@ -1793,7 +1816,11 @@ enum CostUsageScanner {
                                 cached: max(0, toInt($0["cached_input_tokens"] ?? $0["cache_read_input_tokens"])),
                                 output: max(0, toInt($0["output_tokens"])))
                         }
-                        appendSnapshot(timestamp: timestamp, last: last, total: total)
+                        appendSnapshot(
+                            timestamp: timestamp,
+                            turnID: Self.codexTurnID(from: payload) ?? currentTurnID,
+                            last: last,
+                            total: total)
                     }
                 })
         } catch is CancellationError {

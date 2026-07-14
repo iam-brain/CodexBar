@@ -21,9 +21,17 @@ enum CodexLineageLedger {
     }
 
     struct Observation: Equatable, Sendable {
+        let eventID: String?
         let timestamp: String
         let last: Totals
         let total: Totals
+
+        init(eventID: String? = nil, timestamp: String, last: Totals, total: Totals) {
+            self.eventID = eventID
+            self.timestamp = timestamp
+            self.last = last
+            self.total = total
+        }
     }
 
     struct Document: Equatable, Sendable {
@@ -61,7 +69,7 @@ enum CodexLineageLedger {
             }
         }
 
-        var acceptedByComponent: [String: [Fingerprint: AcceptedObservation]] = [:]
+        var acceptedByComponent: [String: [ObservationIdentity: AcceptedObservation]] = [:]
         var physicalObservationCount = 0
         for document in documents {
             let componentID = graph.find(document.ownerID)
@@ -69,11 +77,13 @@ enum CodexLineageLedger {
             for observation in document.observations {
                 physicalObservationCount += 1
                 let date = try Self.date(from: observation.timestamp)
-                let fingerprint = Fingerprint(last: observation.last, total: observation.total)
-                if let existing = accepted[fingerprint], existing.date <= date {
+                let identity = ObservationIdentity(
+                    eventID: Self.nonEmpty(observation.eventID),
+                    fingerprint: Fingerprint(last: observation.last, total: observation.total))
+                if let existing = accepted[identity], existing.date <= date {
                     continue
                 }
-                accepted[fingerprint] = AcceptedObservation(date: date, last: observation.last)
+                accepted[identity] = AcceptedObservation(date: date, last: observation.last)
             }
             acceptedByComponent[componentID] = accepted
         }
@@ -100,6 +110,15 @@ enum CodexLineageLedger {
     private struct Fingerprint: Equatable, Hashable {
         let last: Totals
         let total: Totals
+    }
+
+    private enum ObservationIdentity: Equatable, Hashable {
+        case event(String)
+        case fingerprint(Fingerprint)
+
+        init(eventID: String?, fingerprint: Fingerprint) {
+            self = eventID.map(Self.event) ?? .fingerprint(fingerprint)
+        }
     }
 
     private struct AcceptedObservation {
