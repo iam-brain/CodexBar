@@ -1685,7 +1685,7 @@ enum CostUsageScanner {
         return nil
     }
 
-    // swiftlint:disable:next cyclomatic_complexity
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func parseCodexTokenSnapshots(
         fileURL: URL,
         checkCancellation: CancellationCheck? = nil) throws -> CodexParsedTokenEvidence
