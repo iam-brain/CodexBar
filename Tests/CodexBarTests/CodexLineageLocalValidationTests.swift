@@ -234,8 +234,9 @@ struct CodexLineageLocalValidationTests {
             // would make the replay look better by silently dropping a family.
             throw CodexLineageAccountingSelector.SelectionError.missingContainedFamilyEvidence
         }
-        let selected = CodexLineageAccountingSelector.select(
+        let selected = try CodexLineageAccountingSelector.select(
             mode: .lineage,
+            authorization: Self.promotionAuthorization(),
             legacyDays: legacyCache.days,
             primaryRows: lineage.report.utcRows,
             containedFamilies: selectableContainedFamilies)
@@ -491,6 +492,38 @@ struct CodexLineageLocalValidationTests {
 
     private static func tokensByDay(_ days: CodexLineageAccountingSelector.PackedDays) -> [String: Int] {
         days.mapValues { models in models.values.reduce(0) { $0 + ($1[safe: 0] ?? 0) + ($1[safe: 2] ?? 0) } }
+    }
+
+    private static func promotionAuthorization() throws -> CodexLineagePromotionEvaluator.Authorization {
+        let sample = CodexLineageResidualClassifier.Sample(
+            day: "validation",
+            referenceTokens: 1000,
+            isReferenceFinalized: true,
+            isOrdinaryDay: false,
+            legacyTokens: 500,
+            ledgerUTCTokens: 950,
+            ledgerLocalTokens: 950,
+            evidence: .init(localCorpusWasExhaustive: true, duplicateObservationCount: 1))
+        let decision = CodexLineagePromotionEvaluator.evaluate(.init(
+            residualReport: CodexLineageResidualClassifier.classify(samples: [sample]),
+            targetDays: ["validation"],
+            reviewedResidualDays: ["validation"],
+            adversarialGoldensPassed: true,
+            boundedDiscoveryPassed: true,
+            familyRouting: .init(
+                primaryFamilyCount: 1,
+                containedFamilyCount: 0,
+                doubleContributionFamilyCount: 0,
+                permanentContainmentSupported: true),
+            performance: .init(
+                coldMeasured: true,
+                warmMeasured: true,
+                memoryBoundMeasured: true,
+                hasMaterialRegression: false),
+            cancellationStages: Set(CodexLineagePromotionEvaluator.CancellationStage.allCases),
+            atomicPublicationPassed: true,
+            rollback: .init(legacyWholeScanAvailable: true, rollbackPathVerified: true)))
+        return try #require(decision.authorization)
     }
 
     private static func milliseconds(_ duration: Duration) -> Int64 {

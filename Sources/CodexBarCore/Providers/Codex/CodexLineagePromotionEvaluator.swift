@@ -5,6 +5,7 @@ import Foundation
 /// This evaluator does not choose token totals or tune an error percentage. It verifies that the
 /// independently collected correctness and operational evidence is complete enough to promote.
 enum CodexLineagePromotionEvaluator {
+    /// Opaque proof that the full promotion contract passed. Only `evaluate` can create one.
     struct Authorization: Equatable, Sendable {
         fileprivate init() {}
     }
@@ -85,6 +86,7 @@ enum CodexLineagePromotionEvaluator {
         let keepsFamilyContainment: Bool
         /// Legacy remains a whole-scan emergency authority until its dedicated removal work.
         let keepsLegacyEmergencyRollback: Bool
+
         let authorization: Authorization?
 
         fileprivate init(

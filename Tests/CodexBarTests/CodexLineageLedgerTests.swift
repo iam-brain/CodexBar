@@ -13,6 +13,7 @@ struct CodexLineageLedgerTests {
         let contents = [
             #"{"type":"session_meta","payload":{"id":"metadata-id","forked_from_id":"parent-id"}}"#,
             #"{"type":"turn_context","payload":{"model":"gpt-5.4"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-a"}}"#,
             Self.tokenCountLine(
                 timestamp: "2026-07-09T12:00:00Z",
                 last: (input: 100, cached: 40, output: 10),
@@ -35,6 +36,7 @@ struct CodexLineageLedgerTests {
         #expect(document.incompleteObservationCount == 1)
         #expect(document.scopeID == environment.root.path)
         #expect(document.observations[0].model == "gpt-5.4")
+        #expect(document.observations.map(\.eventID) == ["turn-a:0", "turn-a:1"])
         #expect(document.observations[0].last == .init(input: 100, cached: 40, output: 10))
         #expect(document.observations[1].total == .init(input: 150, cached: 60, output: 15))
     }
@@ -189,6 +191,83 @@ struct CodexLineageLedgerTests {
     }
 
     @Test
+    func `copy stable event identity preserves independent identical observations`() throws {
+        let copied = Self.observation(
+            eventID: "turn-a:0",
+            timestamp: "2026-07-09T12:00:00Z",
+            input: 100,
+            totalInput: 100)
+        let independent = Self.observation(
+            eventID: "turn-b:0",
+            timestamp: "2026-07-09T12:00:00Z",
+            input: 100,
+            totalInput: 100)
+        let report = try CodexLineageLedger.reconcile(
+            documents: [
+                Self.document(owner: "root", observations: []),
+                Self.document(owner: "child-a", parent: "root", observations: [copied]),
+                Self.document(owner: "child-b", parent: "root", observations: [copied, independent]),
+            ],
+            localTimeZone: .gmt)
+
+        #expect(report.utcDays["2026-07-09"]?.input == 200)
+        #expect(report.acceptedObservationCount == 2)
+        #expect(report.duplicateObservationCount == 1)
+    }
+
+    @Test
+    func `equal states across ancestor and descendant remain one logical observation`() throws {
+        let ancestor = Self.observation(
+            eventID: "turn-a:0",
+            timestamp: "2026-07-09T12:00:00Z",
+            input: 100,
+            totalInput: 100)
+        let descendantReemission = Self.observation(
+            eventID: "turn-b:0",
+            timestamp: "2026-07-09T12:01:00Z",
+            input: 100,
+            totalInput: 100)
+        let report = try CodexLineageLedger.reconcile(
+            documents: [
+                Self.document(owner: "root", observations: [ancestor]),
+                Self.document(owner: "child", parent: "root", observations: [descendantReemission]),
+            ],
+            localTimeZone: .gmt)
+
+        #expect(report.utcDays["2026-07-09"]?.input == 100)
+        #expect(report.acceptedObservationCount == 1)
+        #expect(report.duplicateObservationCount == 1)
+    }
+
+    @Test
+    func `retained ancestor metadata still uses the physical parent for state deduplication`() throws {
+        let ancestor = Self.observation(
+            eventID: "turn-a:0",
+            timestamp: "2026-07-09T12:00:00Z",
+            input: 100,
+            totalInput: 100)
+        let descendantReemission = Self.observation(
+            eventID: "turn-b:0",
+            timestamp: "2026-07-09T12:01:00Z",
+            input: 100,
+            totalInput: 100)
+        let report = try CodexLineageLedger.reconcile(
+            documents: [
+                Self.document(owner: "root", observations: [ancestor]),
+                Self.document(
+                    owner: "child",
+                    metadata: "root",
+                    parent: "root",
+                    observations: [descendantReemission]),
+            ],
+            localTimeZone: .gmt)
+
+        #expect(report.utcDays["2026-07-09"]?.input == 100)
+        #expect(report.acceptedObservationCount == 1)
+        #expect(report.duplicateObservationCount == 1)
+    }
+
+    @Test
     func `equal observations in disconnected lineages remain additive`() throws {
         let observation = Self.observation(timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
         let report = try CodexLineageLedger.reconcile(
@@ -214,6 +293,27 @@ struct CodexLineageLedgerTests {
         #expect(report.utcDays["2026-07-09"]?.input == 100)
         #expect(report.acceptedObservationCount == 1)
         #expect(report.duplicateObservationCount == 2)
+    }
+
+    @Test
+    func `distinct event identities do not revive unchanged states within one owner`() throws {
+        let first = Self.observation(
+            eventID: "turn-a:0",
+            timestamp: "2026-07-09T12:00:00Z",
+            input: 100,
+            totalInput: 100)
+        let reemission = Self.observation(
+            eventID: "turn-b:0",
+            timestamp: "2026-07-09T12:01:00Z",
+            input: 100,
+            totalInput: 100)
+        let report = try CodexLineageLedger.reconcile(
+            documents: [Self.document(owner: "root", observations: [first, reemission])],
+            localTimeZone: .gmt)
+
+        #expect(report.utcDays["2026-07-09"]?.input == 100)
+        #expect(report.acceptedObservationCount == 1)
+        #expect(report.duplicateObservationCount == 1)
     }
 
     @Test
@@ -532,6 +632,7 @@ struct CodexLineageLedgerTests {
     }
 
     private static func observation(
+        eventID: String? = nil,
         timestamp: String,
         model: String = CostUsagePricing.codexUnattributedModel,
         input: Int,
@@ -540,6 +641,7 @@ struct CodexLineageLedgerTests {
         totalInput: Int) -> CodexLineageLedger.Observation
     {
         .init(
+            eventID: eventID,
             timestamp: timestamp,
             model: model,
             last: .init(input: input, cached: cached, output: output),

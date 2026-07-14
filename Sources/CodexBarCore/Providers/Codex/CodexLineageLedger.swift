@@ -21,12 +21,22 @@ enum CodexLineageLedger {
     }
 
     struct Observation: Equatable, Sendable {
+        /// Copy-stable identity derived from the logical turn and the token event's ordinal in that turn.
+        /// Physical rollout copies preserve this value; independent turns do not share it.
+        let eventID: String?
         let timestamp: String
         let model: String
         let last: Totals
         let total: Totals
 
-        init(timestamp: String, model: String = CostUsagePricing.codexUnattributedModel, last: Totals, total: Totals) {
+        init(
+            eventID: String? = nil,
+            timestamp: String,
+            model: String = CostUsagePricing.codexUnattributedModel,
+            last: Totals,
+            total: Totals)
+        {
+            self.eventID = eventID
             self.timestamp = timestamp
             self.model = CostUsagePricing.normalizeCodexModel(model)
             self.last = last
@@ -171,8 +181,11 @@ enum CodexLineageLedger {
         var acceptedObservationCount = 0
         for componentDocuments in documentsByComponent.values {
             try checkCancellation?()
-            var accepted: [Fingerprint: AcceptedObservation] = [:]
-            for document in componentDocuments {
+            let parentByOwner = Self.physicalParents(componentDocuments)
+            var accepted: [ObservationIdentity: AcceptedObservation] = [:]
+            var acceptedByFingerprint: [Fingerprint: [String: ObservationIdentity]] = [:]
+            for document in Self.parentsFirst(componentDocuments, parentByOwner: parentByOwner) {
+                let ownerID = Self.scoped(document.ownerID, document: document)
                 for observation in document.observations {
                     try checkCancellation?()
                     physicalObservationCount += 1
@@ -184,7 +197,16 @@ enum CodexLineageLedger {
                         parsedDates[observation.timestamp] = date
                     }
                     let fingerprint = Fingerprint(last: observation.last, total: observation.total)
-                    if let existing = accepted[fingerprint] {
+                    let proposedIdentity = ObservationIdentity(
+                        eventID: Self.nonEmpty(observation.eventID),
+                        fingerprint: fingerprint)
+                    let comparableIdentity = Self.comparableIdentity(
+                        ownerID: ownerID,
+                        acceptedByOwner: acceptedByFingerprint[fingerprint],
+                        parentByOwner: parentByOwner)
+                    let identity = accepted[proposedIdentity] == nil ? comparableIdentity ?? proposedIdentity :
+                        proposedIdentity
+                    if let existing = accepted[identity] {
                         if existing.date < date {
                             continue
                         }
@@ -194,10 +216,13 @@ enum CodexLineageLedger {
                             continue
                         }
                     }
-                    accepted[fingerprint] = AcceptedObservation(
+                    accepted[identity] = AcceptedObservation(
                         date: date,
                         model: observation.model,
                         last: observation.last)
+                    if identity == proposedIdentity {
+                        acceptedByFingerprint[fingerprint, default: [:]][ownerID] = identity
+                    }
                 }
             }
             acceptedObservationCount += accepted.count
@@ -297,6 +322,15 @@ enum CodexLineageLedger {
         let total: Totals
     }
 
+    private enum ObservationIdentity: Equatable, Hashable {
+        case event(String)
+        case fingerprint(Fingerprint)
+
+        init(eventID: String?, fingerprint: Fingerprint) {
+            self = eventID.map(Self.event) ?? .fingerprint(fingerprint)
+        }
+    }
+
     private struct AcceptedObservation {
         let date: Date
         let model: String
@@ -325,6 +359,69 @@ enum CodexLineageLedger {
 
     private static func canonicalIdentity(_ identity: String) -> String {
         UUID(uuidString: identity)?.uuidString.lowercased() ?? identity
+    }
+
+    private static func physicalParents(_ documents: [Document]) -> [String: String] {
+        var physicalOwners: Set<String> = []
+        for document in documents {
+            let owner = Self.scoped(document.ownerID, document: document)
+            physicalOwners.insert(owner)
+        }
+        var result: [String: String] = [:]
+        for document in documents {
+            guard let parent = Self.nonEmpty(document.parentSessionID) else { continue }
+            let owner = Self.scoped(document.ownerID, document: document)
+            let parentIdentity = Self.scoped(parent, document: document)
+            guard physicalOwners.contains(parentIdentity), parentIdentity != owner else { continue }
+            result[owner] = parentIdentity
+        }
+        return result
+    }
+
+    private static func comparableIdentity(
+        ownerID: String,
+        acceptedByOwner: [String: ObservationIdentity]?,
+        parentByOwner: [String: String]) -> ObservationIdentity?
+    {
+        guard let acceptedByOwner else { return nil }
+        var current: String? = ownerID
+        var visited: Set<String> = []
+        while let candidate = current, visited.insert(candidate).inserted {
+            if let identity = acceptedByOwner[candidate] {
+                return identity
+            }
+            current = parentByOwner[candidate]
+        }
+        return nil
+    }
+
+    private static func parentsFirst(
+        _ documents: [Document],
+        parentByOwner: [String: String]) -> [Document]
+    {
+        var depths: [String: Int] = [:]
+        func depth(_ owner: String) -> Int {
+            if let cached = depths[owner] { return cached }
+            var path: [String] = []
+            var current = owner
+            var seen: Set<String> = []
+            while let parent = parentByOwner[current], seen.insert(current).inserted {
+                path.append(current)
+                current = parent
+            }
+            let base = depths[current] ?? 0
+            for (offset, item) in path.reversed().enumerated() {
+                depths[item] = base + offset + 1
+            }
+            depths[owner] = depths[owner] ?? base
+            return depths[owner] ?? 0
+        }
+        return documents.sorted { lhs, rhs in
+            let lhsDepth = depth(Self.scoped(lhs.ownerID, document: lhs))
+            let rhsDepth = depth(Self.scoped(rhs.ownerID, document: rhs))
+            if lhsDepth != rhsDepth { return lhsDepth < rhsDepth }
+            return Self.documentComesBefore(lhs, rhs)
+        }
     }
 
     private static func documentComesBefore(_ lhs: Document, _ rhs: Document) -> Bool {

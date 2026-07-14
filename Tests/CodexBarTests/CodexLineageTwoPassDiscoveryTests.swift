@@ -31,6 +31,32 @@ struct CodexLineageTwoPassDiscoveryTests {
     }
 
     @Test
+    func `retained ancestor metadata does not suppress the physical parent`() throws {
+        let environment = try CostUsageTestEnvironment()
+        defer { environment.cleanup() }
+        let parentID = Self.uuid(10)
+        let parent = try Self.writeRollout(
+            root: environment.codexArchivedSessionsRoot,
+            ownerID: parentID,
+            observations: 1)
+        let child = try Self.writeRollout(
+            root: environment.codexSessionsRoot,
+            ownerID: Self.uuid(11),
+            metadataID: parentID,
+            parentID: parentID,
+            observations: 1)
+
+        let report = try CodexLineageTwoPassDiscovery.discover(
+            includedFiles: [child],
+            roots: [environment.codexSessionsRoot, environment.codexArchivedSessionsRoot])
+
+        #expect(report.descriptors.map(\.fileURL).map(\.standardizedFileURL.path)
+            .contains(parent.standardizedFileURL.path))
+        #expect(report.referencedParentDocumentCount == 1)
+        #expect(report.unresolvedParents.isEmpty)
+    }
+
+    @Test
     func `streaming reconciliation loads one family at a time and warm reuse loads none`() throws {
         let environment = try CostUsageTestEnvironment()
         defer { environment.cleanup() }
@@ -120,12 +146,13 @@ struct CodexLineageTwoPassDiscoveryTests {
     private static func writeRollout(
         root: URL,
         ownerID: String,
+        metadataID: String? = nil,
         parentID: String? = nil,
         observations: Int) throws -> URL
     {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let file = root.appendingPathComponent("rollout-2026-07-09T00-00-00-\(ownerID).jsonl")
-        var lines = [#"{"type":"session_meta","payload":{"id":"\#(ownerID)""#
+        var lines = [#"{"type":"session_meta","payload":{"id":"\#(metadataID ?? ownerID)""#
             + (parentID.map { #", "forked_from_id":"\#($0)""# } ?? "") + "}}"]
         lines += (0..<observations).map { index in
             #"{"type":"event_msg","timestamp":"2026-07-09T12:00:00Z","#
