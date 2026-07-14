@@ -80,6 +80,7 @@ enum CostUsageScanner {
         var contributingSessionIds: Set<String> = []
         var seenFileIds: Set<String> = []
         var seenCodexUsageRowKeys: Set<String> = []
+        var changedLineageInputs = false
     }
 
     struct CodexScannedSession {
@@ -2473,6 +2474,7 @@ enum CostUsageScanner {
         if Self.keepCachedCodexFileIfFresh(input: input, context: context, cache: &cache, state: &state) {
             return
         }
+        state.changedLineageInputs = true
         if try Self.appendCodexFileIncrementIfPossible(input: input, context: context, cache: &cache, state: &state) {
             return
         }
@@ -2682,6 +2684,7 @@ enum CostUsageScanner {
                 let shouldDrop = shouldDropAllUnscannedFiles ||
                     old.touchesCodexScanWindow(sinceKey: range.scanSinceKey, untilKey: range.scanUntilKey)
                 guard shouldDrop else { continue }
+                scanState.changedLineageInputs = true
                 Self.applyFileDays(cache: &cache, fileDays: old.days, sign: -1)
                 cache.files.removeValue(forKey: key)
             }
@@ -2692,6 +2695,7 @@ enum CostUsageScanner {
                     guard old.touchesCodexScanWindow(sinceKey: range.scanSinceKey, untilKey: range.scanUntilKey)
                     else { continue }
                     guard FileManager.default.fileExists(atPath: key) else {
+                        scanState.changedLineageInputs = true
                         Self.applyFileDays(cache: &cache, fileDays: old.days, sign: -1)
                         cache.files.removeValue(forKey: key)
                         continue
@@ -2708,12 +2712,14 @@ enum CostUsageScanner {
                 ? [cachedUntilKey, range.scanUntilKey].compactMap(\.self).max() ?? range.scanUntilKey
                 : range.scanUntilKey
             Self.pruneDays(cache: &cache, sinceKey: retainedSinceKey, untilKey: retainedUntilKey)
-            try Self.recordCodexLineageShadow(
-                files: files,
-                roots: plan.roots,
-                cache: cache,
-                range: range,
-                checkCancellation: checkCancellation)
+            if scanState.changedLineageInputs {
+                try Self.recordCodexLineageShadow(
+                    files: files,
+                    roots: plan.roots,
+                    cache: cache,
+                    range: range,
+                    checkCancellation: checkCancellation)
+            }
             cache.roots = plan.rootsFingerprint
             cache.scanSinceKey = retainedSinceKey
             cache.scanUntilKey = retainedUntilKey
