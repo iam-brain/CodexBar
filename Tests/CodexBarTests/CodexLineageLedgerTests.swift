@@ -99,8 +99,10 @@ struct CodexLineageLedgerTests {
 
     @Test
     func `copy stable identities preserve independent equal observations`() throws {
-        let copied = Self.observation(eventID: "turn-a:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
-        let independent = Self.observation(eventID: "turn-b:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
+        let copied = Self.observation(
+            eventID: "turn-a:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
+        let independent = Self.observation(
+            eventID: "turn-b:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
         let report = try CodexLineageLedger.reconcile(
             documents: [
                 Self.document(owner: "root", observations: [copied]),
