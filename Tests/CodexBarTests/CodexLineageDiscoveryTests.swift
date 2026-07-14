@@ -210,7 +210,7 @@ struct CodexLineageDiscoveryTests {
 
         #expect(Set(report.documents.map(\.ownerID)) == [parentID, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"])
         #expect(report.referencedParentDocumentCount == 1)
-        #expect(report.unresolvedParentIDs.isEmpty)
+        #expect(report.unresolvedParents.isEmpty)
     }
 
     private static func writeRollout(

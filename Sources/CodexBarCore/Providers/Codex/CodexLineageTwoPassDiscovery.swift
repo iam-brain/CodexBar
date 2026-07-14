@@ -51,9 +51,6 @@ enum CodexLineageTwoPassDiscovery {
         func remember(_ descriptor: Descriptor) {
             descriptors.append(descriptor)
             known.insert(.init(scopeID: descriptor.scopeID, sessionID: Self.canonical(descriptor.ownerID)))
-            if let metadata = Self.nonEmpty(descriptor.metadataSessionID) {
-                known.insert(.init(scopeID: descriptor.scopeID, sessionID: Self.canonical(metadata)))
-            }
             if let parent = Self.nonEmpty(descriptor.parentSessionID) {
                 pending.append(.init(scopeID: descriptor.scopeID, sessionID: Self.canonical(parent)))
             }
@@ -84,8 +81,7 @@ enum CodexLineageTwoPassDiscovery {
                 guard seenPaths.insert(fileURL.standardizedFileURL.path).inserted else { continue }
                 let descriptor = try Self.describe(fileURL: fileURL, checkCancellation: checkCancellation)
                 let owner = Self.canonical(descriptor.ownerID)
-                let metadata = descriptor.metadataSessionID.map(Self.canonical)
-                guard owner == identity.sessionID || metadata == identity.sessionID else { continue }
+                guard owner == identity.sessionID else { continue }
                 remember(descriptor)
                 referencedParents += 1
                 found = true
@@ -199,15 +195,6 @@ enum CodexLineageTwoPassDiscovery {
                     if let owner = CostUsageScanner.codexRolloutOwnerID(fileURL: fileURL) {
                         self.filesByIdentity[
                             .init(scopeID: scopeID, sessionID: CodexLineageTwoPassDiscovery.canonical(owner)),
-                            default: [],
-                        ].insert(fileURL)
-                    }
-                    if let metadata = try CostUsageScanner.parseCodexSessionIdentifier(
-                        fileURL: fileURL,
-                        checkCancellation: self.checkCancellation)
-                    {
-                        self.filesByIdentity[
-                            .init(scopeID: scopeID, sessionID: CodexLineageTwoPassDiscovery.canonical(metadata)),
                             default: [],
                         ].insert(fileURL)
                     }

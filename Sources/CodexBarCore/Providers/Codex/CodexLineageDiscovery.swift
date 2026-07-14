@@ -24,11 +24,6 @@ enum CodexLineageDiscovery {
         func remember(_ document: CodexLineageLedger.Document) {
             documents.append(document)
             knownIDs.insert(.init(scopeID: document.scopeID, sessionID: Self.canonicalSessionID(document.ownerID)))
-            if let metadataSessionID = Self.nonEmpty(document.metadataSessionID) {
-                knownIDs.insert(.init(
-                    scopeID: document.scopeID,
-                    sessionID: Self.canonicalSessionID(metadataSessionID)))
-            }
             if let parentSessionID = Self.nonEmpty(document.parentSessionID) {
                 pendingParentIDs.append(.init(
                     scopeID: document.scopeID,
@@ -71,8 +66,7 @@ enum CodexLineageDiscovery {
                     fileURL: parentURL,
                     checkCancellation: checkCancellation)
                 let ownerID = Self.canonicalSessionID(parent.ownerID)
-                let metadataSessionID = parent.metadataSessionID.map(Self.canonicalSessionID)
-                guard ownerID == parentIdentity.sessionID || metadataSessionID == parentIdentity.sessionID else {
+                guard ownerID == parentIdentity.sessionID else {
                     continue
                 }
                 referencedParentDocumentCount += 1
@@ -154,16 +148,6 @@ enum CodexLineageDiscovery {
                 try self.checkCancellation?()
                 if let ownerID = CostUsageScanner.codexRolloutOwnerID(fileURL: fileURL) {
                     let canonicalID = CodexLineageDiscovery.canonicalSessionID(ownerID)
-                    let key = ScopedIdentity(
-                        scopeID: CostUsageScanner.codexLineageScopeID(fileURL: fileURL),
-                        sessionID: canonicalID)
-                    self.filesByID[key, default: []].insert(fileURL)
-                }
-                if let metadataID = try CostUsageScanner.parseCodexSessionIdentifier(
-                    fileURL: fileURL,
-                    checkCancellation: self.checkCancellation)
-                {
-                    let canonicalID = CodexLineageDiscovery.canonicalSessionID(metadataID)
                     let key = ScopedIdentity(
                         scopeID: CostUsageScanner.codexLineageScopeID(fileURL: fileURL),
                         sessionID: canonicalID)

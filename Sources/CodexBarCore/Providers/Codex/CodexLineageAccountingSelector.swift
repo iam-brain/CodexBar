@@ -40,11 +40,12 @@ enum CodexLineageAccountingSelector {
 
     static func select(
         mode: CodexLineageAccountingMode,
+        authorization: CodexLineagePromotionEvaluator.Authorization? = nil,
         legacyDays: PackedDays,
         primaryRows: [CodexLineageLedger.DailyRow],
         containedFamilies: [ContainedFamily]) -> Selection
     {
-        guard mode == .lineage else {
+        guard mode == .lineage, authorization != nil else {
             return Selection(days: legacyDays, usedLineageAuthority: false, containedFamilyCount: 0)
         }
         var days = Self.days(from: primaryRows)

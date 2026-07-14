@@ -5,6 +5,10 @@ import Foundation
 /// This evaluator does not choose token totals or tune an error percentage. It verifies that the
 /// independently collected correctness and operational evidence is complete enough to promote.
 enum CodexLineagePromotionEvaluator {
+    struct Authorization: Equatable, Sendable {
+        fileprivate init() {}
+    }
+
     enum CancellationStage: String, CaseIterable, Equatable, Hashable, Sendable {
         case rootIndexing
         case parsing
@@ -81,6 +85,19 @@ enum CodexLineagePromotionEvaluator {
         let keepsFamilyContainment: Bool
         /// Legacy remains a whole-scan emergency authority until its dedicated removal work.
         let keepsLegacyEmergencyRollback: Bool
+        let authorization: Authorization?
+
+        fileprivate init(
+            blockers: [Blocker],
+            keepsFamilyContainment: Bool,
+            keepsLegacyEmergencyRollback: Bool,
+            authorization: Authorization?)
+        {
+            self.blockers = blockers
+            self.keepsFamilyContainment = keepsFamilyContainment
+            self.keepsLegacyEmergencyRollback = keepsLegacyEmergencyRollback
+            self.authorization = authorization
+        }
     }
 
     static func evaluate(_ input: Input) -> Decision {
@@ -102,10 +119,12 @@ enum CodexLineagePromotionEvaluator {
         Self.addTargetBlockers(input.targetDays, daysByID: daysByID, to: &blockers)
         Self.addOperationalBlockers(input, to: &blockers)
 
+        let orderedBlockers = Blocker.allCases.filter(blockers.contains)
         return Decision(
-            blockers: Blocker.allCases.filter(blockers.contains),
+            blockers: orderedBlockers,
             keepsFamilyContainment: input.familyRouting.permanentContainmentSupported,
-            keepsLegacyEmergencyRollback: input.rollback.legacyWholeScanAvailable)
+            keepsLegacyEmergencyRollback: input.rollback.legacyWholeScanAvailable,
+            authorization: orderedBlockers.isEmpty ? Authorization() : nil)
     }
 
     private static func addReportBlockers(

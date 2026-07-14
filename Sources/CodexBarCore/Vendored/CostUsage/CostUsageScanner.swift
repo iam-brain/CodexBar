@@ -29,6 +29,7 @@ enum CostUsageScanner {
         var refreshMinIntervalSeconds: TimeInterval = 60
         var claudeLogProviderFilter: ClaudeLogProviderFilter = .all
         var codexLineageAccountingMode: CodexLineageAccountingMode = .defaultMode
+        var codexLineagePromotionAuthorization: CodexLineagePromotionEvaluator.Authorization?
         /// Force a full rescan, ignoring per-file cache and incremental offsets.
         var forceRescan: Bool = false
 
@@ -39,6 +40,7 @@ enum CostUsageScanner {
             codexTraceDatabaseURL: URL? = nil,
             claudeLogProviderFilter: ClaudeLogProviderFilter = .all,
             codexLineageAccountingMode: CodexLineageAccountingMode = .defaultMode,
+            codexLineagePromotionAuthorization: CodexLineagePromotionEvaluator.Authorization? = nil,
             forceRescan: Bool = false)
         {
             self.codexSessionsRoot = codexSessionsRoot
@@ -47,6 +49,7 @@ enum CostUsageScanner {
             self.codexTraceDatabaseURL = codexTraceDatabaseURL
             self.claudeLogProviderFilter = claudeLogProviderFilter
             self.codexLineageAccountingMode = codexLineageAccountingMode
+            self.codexLineagePromotionAuthorization = codexLineagePromotionAuthorization
             self.forceRescan = forceRescan
         }
     }
@@ -1715,6 +1718,8 @@ enum CostUsageScanner {
         var incompleteObservationCount = 0
         var observationCount = 0
         var warnedAboutUnparsedTimestamp = false
+        var currentTurnID: String?
+        var tokenEventCountByTurn: [String: Int] = [:]
 
         func parsedSnapshotDate(timestamp: String) -> Date? {
             let date = Self.dateFromTimestamp(timestamp)
@@ -1730,6 +1735,7 @@ enum CostUsageScanner {
         func appendSnapshot(
             timestamp: String,
             model: String?,
+            turnID: String?,
             last: CostUsageCodexTotals?,
             total: CostUsageCodexTotals?)
         {
@@ -1744,10 +1750,16 @@ enum CostUsageScanner {
                     date: parsedSnapshotDate(timestamp: timestamp),
                     totals: counted))
             }
+            let eventID = retainEvidence ? turnID.map { turnID in
+                let ordinal = tokenEventCountByTurn[turnID, default: 0]
+                tokenEventCountByTurn[turnID] = ordinal + 1
+                return "\(turnID):\(ordinal)"
+            } : nil
             if let last, let total {
                 observationCount += 1
                 if retainEvidence {
                     observations.append(CodexLineageLedger.Observation(
+                        eventID: eventID,
                         timestamp: timestamp,
                         model: Self.codexModelEvidence(model)
                             ?? Self.codexModelEvidence(currentModel)
@@ -1785,14 +1797,15 @@ enum CostUsageScanner {
                             appendSnapshot(
                                 timestamp: record.timestamp,
                                 model: record.model,
+                                turnID: record.turnID ?? currentTurnID,
                                 last: record.last,
                                 total: record.total)
                         case let .turnContext(model):
                             if let model {
                                 currentModel = model
                             }
-                        case .taskStarted:
-                            break
+                        case let .taskStarted(turnID):
+                            currentTurnID = turnID
                         }
                         return
                     }
@@ -1833,6 +1846,10 @@ enum CostUsageScanner {
 
                         guard obj["type"] as? String == "event_msg" else { return }
                         guard let payload = obj["payload"] as? [String: Any] else { return }
+                        if payload["type"] as? String == "task_started" {
+                            currentTurnID = Self.codexTurnID(from: payload)
+                            return
+                        }
                         guard payload["type"] as? String == "token_count" else { return }
                         guard let info = payload["info"] as? [String: Any] else { return }
                         guard let timestamp = obj["timestamp"] as? String else { return }
@@ -1860,7 +1877,12 @@ enum CostUsageScanner {
                             ?? Self.codexModelEvidence(info["model_name"] as? String)
                             ?? Self.codexModelEvidence(payload["model"] as? String)
                             ?? Self.codexModelEvidence(obj["model"] as? String)
-                        appendSnapshot(timestamp: timestamp, model: model, last: last, total: total)
+                        appendSnapshot(
+                            timestamp: timestamp,
+                            model: model,
+                            turnID: Self.codexTurnID(from: payload) ?? currentTurnID,
+                            last: last,
+                            total: total)
                     }
                 })
         } catch is CancellationError {
@@ -2749,6 +2771,7 @@ enum CostUsageScanner {
             Self.pruneDays(cache: &cache, sinceKey: retainedSinceKey, untilKey: retainedUntilKey)
             try Self.applyCodexLineageAccounting(
                 mode: options.codexLineageAccountingMode,
+                authorization: options.codexLineagePromotionAuthorization,
                 files: files,
                 roots: plan.roots,
                 cache: &cache,
@@ -2802,6 +2825,7 @@ enum CostUsageScanner {
 
     private static func applyCodexLineageAccounting(
         mode: CodexLineageAccountingMode,
+        authorization: CodexLineagePromotionEvaluator.Authorization?,
         files: [URL],
         roots: [URL],
         cache: inout CostUsageCache,
@@ -2847,6 +2871,7 @@ enum CostUsageScanner {
             }
             let selection = CodexLineageAccountingSelector.select(
                 mode: mode,
+                authorization: authorization,
                 legacyDays: cache.days,
                 primaryRows: lineage.report.localRows,
                 containedFamilies: contained)

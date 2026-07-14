@@ -22,6 +22,7 @@ struct CodexLineageAccountingSelectorTests {
     func `lineage mode combines primary and family containment exactly once`() {
         let selection = CodexLineageAccountingSelector.select(
             mode: .lineage,
+            authorization: Self.authorization(),
             legacyDays: Self.days(input: 999),
             primaryRows: [Self.row(input: 100)],
             containedFamilies: [
@@ -47,6 +48,7 @@ struct CodexLineageAccountingSelectorTests {
         ]
         let selection = CodexLineageAccountingSelector.select(
             mode: .lineage,
+            authorization: Self.authorization(),
             legacyDays: [:],
             primaryRows: [],
             containedFamilies: [.init(documents: [
@@ -61,6 +63,7 @@ struct CodexLineageAccountingSelectorTests {
     func `contained siblings remain additive while physical copies are enveloped`() {
         let selection = CodexLineageAccountingSelector.select(
             mode: .lineage,
+            authorization: Self.authorization(),
             legacyDays: [:],
             primaryRows: [],
             containedFamilies: [.init(documents: [
@@ -90,6 +93,19 @@ struct CodexLineageAccountingSelectorTests {
     }
 
     @Test
+    func `lineage mode without promotion authorization keeps legacy authority`() {
+        let legacy = Self.days(input: 100)
+        let selection = CodexLineageAccountingSelector.select(
+            mode: .lineage,
+            legacyDays: legacy,
+            primaryRows: [Self.row(input: 999)],
+            containedFamilies: [])
+
+        #expect(selection.days == legacy)
+        #expect(!selection.usedLineageAuthority)
+    }
+
+    @Test
     func `mode specific producer key mismatch invalidates cache for rollback rebuild`() throws {
         let environment = try CostUsageTestEnvironment()
         defer { environment.cleanup() }
@@ -113,6 +129,38 @@ struct CodexLineageAccountingSelectorTests {
 
     private static func days(input: Int) -> CodexLineageAccountingSelector.PackedDays {
         ["2026-07-09": ["gpt-5.4": [input, 0, 0]]]
+    }
+
+    private static func authorization() -> CodexLineagePromotionEvaluator.Authorization {
+        let sample = CodexLineageResidualClassifier.Sample(
+            day: "2026-07-09",
+            referenceTokens: 1000,
+            isReferenceFinalized: true,
+            isOrdinaryDay: false,
+            legacyTokens: 500,
+            ledgerUTCTokens: 950,
+            ledgerLocalTokens: 950,
+            evidence: .init(localCorpusWasExhaustive: true, duplicateObservationCount: 1))
+        let decision = CodexLineagePromotionEvaluator.evaluate(.init(
+            residualReport: CodexLineageResidualClassifier.classify(samples: [sample]),
+            targetDays: ["2026-07-09"],
+            reviewedResidualDays: ["2026-07-09"],
+            adversarialGoldensPassed: true,
+            boundedDiscoveryPassed: true,
+            familyRouting: .init(
+                primaryFamilyCount: 1,
+                containedFamilyCount: 0,
+                doubleContributionFamilyCount: 0,
+                permanentContainmentSupported: true),
+            performance: .init(
+                coldMeasured: true,
+                warmMeasured: true,
+                memoryBoundMeasured: true,
+                hasMaterialRegression: false),
+            cancellationStages: Set(CodexLineagePromotionEvaluator.CancellationStage.allCases),
+            atomicPublicationPassed: true,
+            rollback: .init(legacyWholeScanAvailable: true, rollbackPathVerified: true)))
+        return decision.authorization!
     }
 
     private static func row(input: Int) -> CodexLineageLedger.DailyRow {
