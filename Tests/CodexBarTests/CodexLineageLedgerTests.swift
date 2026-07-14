@@ -38,6 +38,36 @@ struct CodexLineageLedgerTests {
     }
 
     @Test
+    func `snapshot only parsing skips lineage observation collection`() throws {
+        let environment = try CostUsageTestEnvironment()
+        defer { environment.cleanup() }
+        let fileURL = environment.root.appendingPathComponent("rollout-with-token-states.jsonl")
+        let contents = [
+            Self.tokenCountLine(
+                timestamp: "2026-07-09T12:00:00Z",
+                last: (input: 100, cached: 40, output: 10),
+                total: (input: 100, cached: 40, output: 10)),
+            Self.tokenCountLine(
+                timestamp: "2026-07-09T12:01:00Z",
+                last: (input: 50, cached: 20, output: 5),
+                total: (input: 150, cached: 60, output: 15)),
+        ].joined(separator: "\n")
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let snapshotsOnly = try CostUsageScanner.parseCodexTokenEvidenceCountsForTesting(
+            fileURL: fileURL,
+            collectLineageObservations: false)
+        let lineage = try CostUsageScanner.parseCodexTokenEvidenceCountsForTesting(
+            fileURL: fileURL,
+            collectLineageObservations: true)
+
+        #expect(snapshotsOnly.snapshots == 2)
+        #expect(snapshotsOnly.observations == 0)
+        #expect(lineage.snapshots == 2)
+        #expect(lineage.observations == 2)
+    }
+
+    @Test
     func `daily rows preserve model token and pricing dimensions`() throws {
         let priced = Self.observation(
             timestamp: "2026-07-10T02:00:00Z",

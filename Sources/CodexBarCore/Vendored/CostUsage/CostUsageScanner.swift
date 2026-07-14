@@ -1688,6 +1688,7 @@ enum CostUsageScanner {
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func parseCodexTokenSnapshots(
         fileURL: URL,
+        collectLineageObservations: Bool = false,
         checkCancellation: CancellationCheck? = nil) throws -> CodexParsedTokenEvidence
     {
         var sessionId: String?
@@ -1724,6 +1725,7 @@ enum CostUsageScanner {
                 timestamp: timestamp,
                 date: parsedSnapshotDate(timestamp: timestamp),
                 totals: counted))
+            guard collectLineageObservations else { return }
             let eventID = turnID.map { turnID in
                 let ordinal = tokenEventCountByTurn[turnID, default: 0]
                 tokenEventCountByTurn[turnID] = ordinal + 1
@@ -1871,12 +1873,23 @@ enum CostUsageScanner {
     {
         let parsed = try Self.parseCodexTokenSnapshots(
             fileURL: fileURL,
+            collectLineageObservations: true,
             checkCancellation: checkCancellation)
         return CodexLineageLedger.Document(
             ownerID: Self.codexRolloutOwnerID(fileURL: fileURL) ?? parsed.sessionId ?? fileURL.standardizedFileURL.path,
             metadataSessionID: parsed.sessionId,
             parentSessionID: parsed.forkedFromId,
             observations: parsed.observations)
+    }
+
+    static func parseCodexTokenEvidenceCountsForTesting(
+        fileURL: URL,
+        collectLineageObservations: Bool) throws -> (snapshots: Int, observations: Int)
+    {
+        let parsed = try Self.parseCodexTokenSnapshots(
+            fileURL: fileURL,
+            collectLineageObservations: collectLineageObservations)
+        return (parsed.snapshots.count, parsed.observations.count)
     }
 
     private static func lineageTotals(_ totals: CostUsageCodexTotals) -> CodexLineageLedger.Totals {
