@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CodexBarCore
 
@@ -118,6 +119,11 @@ struct CodexLineageAccountingSelectorTests {
 
         #expect(selection.days == legacy)
         #expect(!selection.usedLineageAuthority)
+        #expect(CostUsageScanner.codexAccountingProducerKey(mode: .lineage)
+            == CostUsageScanner.codexAccountingProducerKey(mode: .legacy))
+        #expect(CostUsageScanner.codexAccountingProducerKey(
+            mode: .lineage,
+            authorization: Self.authorization()) != CostUsageScanner.codexAccountingProducerKey(mode: .legacy))
     }
 
     @Test
@@ -142,8 +148,79 @@ struct CodexLineageAccountingSelectorTests {
         #expect(shadowKey != legacyKey)
     }
 
+    @Test
+    func `scanner cache follows current lineage authorization and narrowed bounds`() throws {
+        let environment = try CostUsageTestEnvironment()
+        defer { environment.cleanup() }
+        let day = try environment.makeLocalNoon(year: 2026, month: 7, day: 9)
+        try Self.writeRollout(environment: environment)
+        var options = CostUsageScanner.Options(
+            codexSessionsRoot: environment.codexSessionsRoot,
+            claudeProjectsRoots: nil,
+            cacheRoot: environment.cacheRoot,
+            codexTraceDatabaseURL: environment.root.appendingPathComponent("missing.sqlite"))
+        options.codexLineageAccountingMode = .lineage
+        options.codexLineagePromotionAuthorization = Self.authorization()
+        options.refreshMinIntervalSeconds = 0
+
+        _ = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day.addingTimeInterval(-86400),
+            until: day,
+            now: day,
+            options: options)
+        _ = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+
+        let authorizedKey = CostUsageScanner.codexAccountingProducerKey(
+            mode: .lineage,
+            authorization: options.codexLineagePromotionAuthorization)
+        let authorizedCache = CostUsageCacheIO.load(
+            provider: .codex,
+            cacheRoot: environment.cacheRoot,
+            producerKey: authorizedKey)
+        let narrowRange = CostUsageScanner.CostUsageDayRange(since: day, until: day)
+        #expect(authorizedCache.scanSinceKey == narrowRange.scanSinceKey)
+        #expect(authorizedCache.scanUntilKey == narrowRange.scanUntilKey)
+
+        options.codexLineagePromotionAuthorization = nil
+        options.refreshMinIntervalSeconds = 3600
+        _ = CostUsageScanner.loadDailyReport(
+            provider: .codex,
+            since: day,
+            until: day,
+            now: day,
+            options: options)
+        let legacyKey = CostUsageScanner.codexAccountingProducerKey(mode: .legacy)
+        let rollbackCache = CostUsageCacheIO.load(
+            provider: .codex,
+            cacheRoot: environment.cacheRoot,
+            producerKey: legacyKey)
+        #expect(rollbackCache.producerKey == legacyKey)
+        #expect(!rollbackCache.days.isEmpty)
+        #expect(legacyKey != authorizedKey)
+    }
+
     private static func days(input: Int) -> CodexLineageAccountingSelector.PackedDays {
         ["2026-07-09": ["gpt-5.4": [input, 0, 0]]]
+    }
+
+    private static func writeRollout(environment: CostUsageTestEnvironment) throws {
+        try FileManager.default.createDirectory(at: environment.codexSessionsRoot, withIntermediateDirectories: true)
+        let ownerID = "00000000-0000-4000-8000-000000000099"
+        let fileURL = environment.codexSessionsRoot
+            .appendingPathComponent("rollout-2026-07-09T12-00-00-\(ownerID).jsonl")
+        let contents = [
+            #"{"type":"session_meta","payload":{"id":"\#(ownerID)"}}"#,
+            #"{"type":"event_msg","timestamp":"2026-07-09T12:00:00Z","payload":{"type":"token_count","info":{"#
+                + #""last_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":10},"#
+                + #""total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":10}}}}"#,
+        ].joined(separator: "\n")
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
     }
 
     private static func authorization() -> CodexLineagePromotionEvaluator.Authorization {

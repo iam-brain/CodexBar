@@ -323,11 +323,11 @@ enum CodexLineageLedger {
     }
 
     private enum ObservationIdentity: Equatable, Hashable {
-        case event(String)
+        case event(String, Fingerprint)
         case fingerprint(Fingerprint)
 
         init(eventID: String?, fingerprint: Fingerprint) {
-            self = eventID.map(Self.event) ?? .fingerprint(fingerprint)
+            self = eventID.map { .event($0, fingerprint) } ?? .fingerprint(fingerprint)
         }
     }
 

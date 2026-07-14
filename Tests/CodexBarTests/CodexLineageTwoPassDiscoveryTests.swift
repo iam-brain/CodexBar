@@ -57,6 +57,32 @@ struct CodexLineageTwoPassDiscoveryTests {
     }
 
     @Test
+    func `exceptional parent lookup uses parsed session identity when filename owner differs`() throws {
+        let environment = try CostUsageTestEnvironment()
+        defer { environment.cleanup() }
+        let parentSessionID = Self.uuid(12)
+        let parent = try Self.writeRollout(
+            root: environment.codexArchivedSessionsRoot,
+            ownerID: Self.uuid(13),
+            metadataID: parentSessionID,
+            observations: 1)
+        let child = try Self.writeRollout(
+            root: environment.codexSessionsRoot,
+            ownerID: Self.uuid(14),
+            parentID: parentSessionID,
+            observations: 1)
+
+        let report = try CodexLineageTwoPassDiscovery.discover(
+            includedFiles: [child],
+            roots: [environment.codexSessionsRoot, environment.codexArchivedSessionsRoot])
+
+        #expect(report.descriptors.map(\.fileURL).map(\.standardizedFileURL.path)
+            .contains(parent.standardizedFileURL.path))
+        #expect(report.referencedParentDocumentCount == 1)
+        #expect(report.unresolvedParents.isEmpty)
+    }
+
+    @Test
     func `streaming reconciliation loads one family at a time and warm reuse loads none`() throws {
         let environment = try CostUsageTestEnvironment()
         defer { environment.cleanup() }
