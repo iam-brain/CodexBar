@@ -1706,6 +1706,7 @@ enum CostUsageScanner {
     private static func parseCodexTokenSnapshots(
         fileURL: URL,
         retainEvidence: Bool = true,
+        collectLineageObservations: Bool = false,
         retainSnapshots: Bool = true,
         suppressScanErrors: Bool = true,
         checkCancellation: CancellationCheck? = nil,
@@ -1752,14 +1753,14 @@ enum CostUsageScanner {
                     date: parsedSnapshotDate(timestamp: timestamp),
                     totals: counted))
             }
-            let eventID = retainEvidence ? turnID.map { turnID in
+            let eventID = collectLineageObservations ? turnID.map { turnID in
                 let ordinal = tokenEventCountByTurn[turnID, default: 0]
                 tokenEventCountByTurn[turnID] = ordinal + 1
                 return "\(turnID):\(ordinal)"
             } : nil
             if let last, let total {
                 observationCount += 1
-                if retainEvidence {
+                if collectLineageObservations {
                     observations.append(CodexLineageLedger.Observation(
                         eventID: eventID,
                         timestamp: timestamp,
@@ -1914,6 +1915,8 @@ enum CostUsageScanner {
     {
         let parsed = try Self.parseCodexTokenSnapshots(
             fileURL: fileURL,
+            retainEvidence: true,
+            collectLineageObservations: true,
             retainSnapshots: false,
             suppressScanErrors: false,
             checkCancellation: checkCancellation)
@@ -1933,6 +1936,8 @@ enum CostUsageScanner {
         var hasher = SHA256()
         let parsed = try Self.parseCodexTokenSnapshots(
             fileURL: fileURL,
+            retainEvidence: true,
+            collectLineageObservations: true,
             retainSnapshots: false,
             suppressScanErrors: false,
             checkCancellation: checkCancellation,
@@ -1984,6 +1989,16 @@ enum CostUsageScanner {
             incompleteObservationCount: parsed.incompleteObservationCount,
             observationCount: parsed.observationCount)
         return (summary, Self.hexDigest(hasher.finalize()))
+    }
+
+    static func parseCodexTokenEvidenceCountsForTesting(
+        fileURL: URL,
+        collectLineageObservations: Bool) throws -> (snapshots: Int, observations: Int)
+    {
+        let parsed = try Self.parseCodexTokenSnapshots(
+            fileURL: fileURL,
+            collectLineageObservations: collectLineageObservations)
+        return (parsed.snapshots.count, parsed.observations.count)
     }
 
     private static func hexDigest(_ digest: some Sequence<UInt8>) -> String {
