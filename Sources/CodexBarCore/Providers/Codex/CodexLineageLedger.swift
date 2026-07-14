@@ -70,22 +70,32 @@ enum CodexLineageLedger {
         }
 
         var acceptedByComponent: [String: [ObservationIdentity: AcceptedObservation]] = [:]
+        var acceptedFingerprintByComponentOwner: [String: [String: [Fingerprint: ObservationIdentity]]] = [:]
         var physicalObservationCount = 0
         for document in documents {
             let componentID = graph.find(document.ownerID)
             var accepted = acceptedByComponent[componentID] ?? [:]
+            var acceptedFingerprintByOwner = acceptedFingerprintByComponentOwner[componentID] ?? [:]
             for observation in document.observations {
                 physicalObservationCount += 1
                 let date = try Self.date(from: observation.timestamp)
-                let identity = ObservationIdentity(
+                let fingerprint = Fingerprint(last: observation.last, total: observation.total)
+                let proposedIdentity = ObservationIdentity(
                     eventID: Self.nonEmpty(observation.eventID),
-                    fingerprint: Fingerprint(last: observation.last, total: observation.total))
+                    fingerprint: fingerprint)
+                let identity = accepted[proposedIdentity] == nil
+                    ? acceptedFingerprintByOwner[document.ownerID]?[fingerprint] ?? proposedIdentity
+                    : proposedIdentity
                 if let existing = accepted[identity], existing.date <= date {
                     continue
                 }
                 accepted[identity] = AcceptedObservation(date: date, last: observation.last)
+                if identity == proposedIdentity {
+                    acceptedFingerprintByOwner[document.ownerID, default: [:]][fingerprint] = identity
+                }
             }
             acceptedByComponent[componentID] = accepted
+            acceptedFingerprintByComponentOwner[componentID] = acceptedFingerprintByOwner
         }
 
         var utcDays: [String: Totals] = [:]
@@ -113,11 +123,11 @@ enum CodexLineageLedger {
     }
 
     private enum ObservationIdentity: Equatable, Hashable {
-        case event(String)
+        case event(String, Fingerprint)
         case fingerprint(Fingerprint)
 
         init(eventID: String?, fingerprint: Fingerprint) {
-            self = eventID.map(Self.event) ?? .fingerprint(fingerprint)
+            self = eventID.map { .event($0, fingerprint) } ?? .fingerprint(fingerprint)
         }
     }
 

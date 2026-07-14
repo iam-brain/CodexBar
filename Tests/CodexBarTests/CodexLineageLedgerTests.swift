@@ -158,6 +158,46 @@ struct CodexLineageLedgerTests {
     }
 
     @Test
+    func `parser ordinals do not revive an unchanged same turn state`() throws {
+        let environment = try CostUsageTestEnvironment()
+        defer { environment.cleanup() }
+        let fileURL = environment.root.appendingPathComponent("rollout-2026-07-09T12-00-00-root.jsonl")
+        let metadata = """
+        {"timestamp":"2026-07-09T12:00:00Z","type":"session_meta","payload":{"id":"root"}}
+        {"timestamp":"2026-07-09T12:00:00Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-a"}}
+        """
+        let tokenState = Self.tokenCountLine(
+            timestamp: "2026-07-09T12:01:00Z",
+            last: (input: 100, cached: 40, output: 10),
+            total: (input: 100, cached: 40, output: 10))
+        try "\(metadata)\n\(tokenState)\n\(tokenState)"
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let document = try CostUsageScanner.parseCodexLineageDocument(fileURL: fileURL)
+        #expect(document.observations.map(\.eventID) == ["turn-a:0", "turn-a:1"])
+        let report = try CodexLineageLedger.reconcile(documents: [document], localTimeZone: .gmt)
+
+        #expect(report.utcDays["2026-07-09"]?.input == 100)
+        #expect(report.acceptedObservationCount == 1)
+        #expect(report.duplicateObservationCount == 1)
+    }
+
+    @Test
+    func `matching event hints with different token states remain distinct`() throws {
+        let first = Self.observation(
+            eventID: "turn-a:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
+        let forked = Self.observation(
+            eventID: "turn-a:0", timestamp: "2026-07-09T12:01:00Z", input: 25, totalInput: 125)
+        let report = try CodexLineageLedger.reconcile(
+            documents: [Self.document(owner: "root", observations: [first, forked])],
+            localTimeZone: .gmt)
+
+        #expect(report.utcDays["2026-07-09"]?.input == 125)
+        #expect(report.acceptedObservationCount == 2)
+        #expect(report.duplicateObservationCount == 0)
+    }
+
+    @Test
     func `complete token state distinguishes observations within a lineage`() throws {
         let first = Self.observation(
             timestamp: "2026-07-09T12:00:00Z",
