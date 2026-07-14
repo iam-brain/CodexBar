@@ -241,6 +241,21 @@ struct CodexLineageLedgerTests {
     }
 
     @Test
+    func `matching event hints with different token states remain distinct`() throws {
+        let first = Self.observation(
+            eventID: "turn-a:0", timestamp: "2026-07-09T12:00:00Z", input: 100, totalInput: 100)
+        let forked = Self.observation(
+            eventID: "turn-a:0", timestamp: "2026-07-09T12:01:00Z", input: 25, totalInput: 125)
+        let report = try CodexLineageLedger.reconcile(
+            documents: [Self.document(owner: "root", observations: [first, forked])],
+            localTimeZone: .gmt)
+
+        #expect(report.utcDays["2026-07-09"]?.input == 125)
+        #expect(report.acceptedObservationCount == 2)
+        #expect(report.duplicateObservationCount == 0)
+    }
+
+    @Test
     func `complete token state distinguishes observations within a lineage`() throws {
         let first = Self.observation(
             timestamp: "2026-07-09T12:00:00Z",
@@ -511,6 +526,7 @@ struct CodexLineageLedgerTests {
     }
 
     private static func observation(
+        eventID: String? = nil,
         timestamp: String,
         model: String = CostUsagePricing.codexUnattributedModel,
         input: Int,
@@ -519,6 +535,7 @@ struct CodexLineageLedgerTests {
         totalInput: Int) -> CodexLineageLedger.Observation
     {
         .init(
+            eventID: eventID,
             timestamp: timestamp,
             model: model,
             last: .init(input: input, cached: cached, output: output),

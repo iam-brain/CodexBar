@@ -80,8 +80,10 @@ enum CodexLineageTwoPassDiscovery {
                 try checkCancellation?()
                 guard seenPaths.insert(fileURL.standardizedFileURL.path).inserted else { continue }
                 let descriptor = try Self.describe(fileURL: fileURL, checkCancellation: checkCancellation)
-                let owner = Self.canonical(descriptor.ownerID)
-                guard owner == identity.sessionID else { continue }
+                let identities = [descriptor.ownerID, descriptor.metadataSessionID]
+                    .compactMap(Self.nonEmpty)
+                    .map(Self.canonical)
+                guard identities.contains(identity.sessionID) else { continue }
                 remember(descriptor)
                 referencedParents += 1
                 found = true
@@ -174,6 +176,13 @@ enum CodexLineageTwoPassDiscovery {
                 try self.index()
             }
             guard let matches = self.filesByIdentity[identity], !matches.isEmpty else { return nil }
+            let exactOwnerMatches = matches.filter {
+                CostUsageScanner.codexRolloutOwnerID(fileURL: $0)
+                    .map(CodexLineageTwoPassDiscovery.canonical) == identity.sessionID
+            }
+            if !exactOwnerMatches.isEmpty {
+                return exactOwnerMatches.sorted { $0.path < $1.path }
+            }
             let owners = Set(matches.compactMap(CostUsageScanner.codexRolloutOwnerID(fileURL:)))
             guard matches.count == 1 || owners.count == 1 else { return nil }
             return matches.sorted { $0.path < $1.path }
@@ -195,6 +204,15 @@ enum CodexLineageTwoPassDiscovery {
                     if let owner = CostUsageScanner.codexRolloutOwnerID(fileURL: fileURL) {
                         self.filesByIdentity[
                             .init(scopeID: scopeID, sessionID: CodexLineageTwoPassDiscovery.canonical(owner)),
+                            default: [],
+                        ].insert(fileURL)
+                    }
+                    if let sessionID = try CostUsageScanner.parseCodexSessionIdentifier(
+                        fileURL: fileURL,
+                        checkCancellation: self.checkCancellation)
+                    {
+                        self.filesByIdentity[
+                            .init(scopeID: scopeID, sessionID: CodexLineageTwoPassDiscovery.canonical(sessionID)),
                             default: [],
                         ].insert(fileURL)
                     }

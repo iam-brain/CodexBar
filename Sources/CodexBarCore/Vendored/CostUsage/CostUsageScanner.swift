@@ -86,6 +86,7 @@ enum CostUsageScanner {
         var contributingSessionIds: Set<String> = []
         var seenFileIds: Set<String> = []
         var seenCodexUsageRowKeys: Set<String> = []
+        var changedLineageInputs = false
     }
 
     struct CodexScannedSession {
@@ -2543,6 +2544,7 @@ enum CostUsageScanner {
         if Self.keepCachedCodexFileIfFresh(input: input, context: context, cache: &cache, state: &state) {
             return
         }
+        state.changedLineageInputs = true
         if try Self.appendCodexFileIncrementIfPossible(input: input, context: context, cache: &cache, state: &state) {
             return
         }
@@ -2651,7 +2653,9 @@ enum CostUsageScanner {
         options: Options,
         checkCancellation: CancellationCheck?) throws -> CostUsageDailyReport
     {
-        let accountingProducerKey = Self.codexAccountingProducerKey(mode: options.codexLineageAccountingMode)
+        let accountingProducerKey = Self.codexAccountingProducerKey(
+            mode: options.codexLineageAccountingMode,
+            authorization: options.codexLineagePromotionAuthorization)
         var cache = CostUsageCacheIO.load(
             provider: .codex,
             cacheRoot: options.cacheRoot,
@@ -2756,6 +2760,7 @@ enum CostUsageScanner {
                 let shouldDrop = shouldDropAllUnscannedFiles ||
                     old.touchesCodexScanWindow(sinceKey: range.scanSinceKey, untilKey: range.scanUntilKey)
                 guard shouldDrop else { continue }
+                scanState.changedLineageInputs = true
                 Self.applyFileDays(cache: &cache, fileDays: old.days, sign: -1)
                 cache.files.removeValue(forKey: key)
             }
@@ -2766,6 +2771,7 @@ enum CostUsageScanner {
                     guard old.touchesCodexScanWindow(sinceKey: range.scanSinceKey, untilKey: range.scanUntilKey)
                     else { continue }
                     guard FileManager.default.fileExists(atPath: key) else {
+                        scanState.changedLineageInputs = true
                         Self.applyFileDays(cache: &cache, fileDays: old.days, sign: -1)
                         cache.files.removeValue(forKey: key)
                         continue
@@ -2773,7 +2779,9 @@ enum CostUsageScanner {
                 }
             }
 
-            let shouldRetainWiderWindow = !options.forceRescan && !plan.pricingChanged && !plan
+            let usesLineageAuthority = options.codexLineageAccountingMode == .lineage
+                && options.codexLineagePromotionAuthorization != nil
+            let shouldRetainWiderWindow = !usesLineageAuthority && !options.forceRescan && !plan.pricingChanged && !plan
                 .priorityMetadataChanged && !plan.needsTurnIDCacheMigration && !plan.needsProjectMetadataMigration
             let retainedSinceKey = shouldRetainWiderWindow
                 ? [cachedSinceKey, range.scanSinceKey].compactMap(\.self).min() ?? range.scanSinceKey
@@ -2782,13 +2790,15 @@ enum CostUsageScanner {
                 ? [cachedUntilKey, range.scanUntilKey].compactMap(\.self).max() ?? range.scanUntilKey
                 : range.scanUntilKey
             Self.pruneDays(cache: &cache, sinceKey: retainedSinceKey, untilKey: retainedUntilKey)
-            try Self.applyCodexLineageAccounting(
-                mode: options.codexLineageAccountingMode,
-                authorization: options.codexLineagePromotionAuthorization,
-                files: files,
-                roots: plan.roots,
-                cache: &cache,
-                checkCancellation: checkCancellation)
+            if options.codexLineageAccountingMode != .shadow || scanState.changedLineageInputs {
+                try Self.applyCodexLineageAccounting(
+                    mode: options.codexLineageAccountingMode,
+                    authorization: options.codexLineagePromotionAuthorization,
+                    files: files,
+                    roots: plan.roots,
+                    cache: &cache,
+                    checkCancellation: checkCancellation)
+            }
             Self.pruneDays(cache: &cache, sinceKey: retainedSinceKey, untilKey: retainedUntilKey)
             cache.roots = plan.rootsFingerprint
             cache.scanSinceKey = retainedSinceKey
@@ -2827,9 +2837,13 @@ enum CostUsageScanner {
             priorityTurns: plan.priorityTurns)
     }
 
-    static func codexAccountingProducerKey(mode: CodexLineageAccountingMode) -> String {
+    static func codexAccountingProducerKey(
+        mode: CodexLineageAccountingMode,
+        authorization: CodexLineagePromotionEvaluator.Authorization? = nil) -> String
+    {
         let base = CostUsageCacheIO.currentProducerKey(provider: .codex) ?? "codex"
-        return mode == .legacy ? base : base + ":" + mode.producerKeySuffix
+        guard mode != .legacy, mode != .lineage || authorization != nil else { return base }
+        return base + ":" + mode.producerKeySuffix
     }
 
     static func shouldRunCodexLineage(mode: CodexLineageAccountingMode) -> Bool {
@@ -2846,6 +2860,7 @@ enum CostUsageScanner {
         checkCancellation: CancellationCheck?) throws
     {
         guard self.shouldRunCodexLineage(mode: mode) else { return }
+        guard mode != .lineage || authorization != nil else { return }
         do {
             let discovery = try CodexLineageTwoPassDiscovery.discover(
                 includedFiles: files,
