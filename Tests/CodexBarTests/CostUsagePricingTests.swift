@@ -133,11 +133,11 @@ struct CostUsagePricingTests {
             outputTokens: 5,
             modelsDevCacheRoot: root)
 
-        // Rates per token: Sol $5/$30 per 1M, Terra $2.50/$15, Luna $1/$6;
+        // Rates per token: Sol $5/$30 per 1M, Terra $2/$12, Luna $0.20/$1.20;
         // cache read is 10% of input. Non-cached input is 90 tokens.
         #expect(sol == (90.0 * 5e-6) + (10.0 * 5e-7) + (5.0 * 3e-5))
-        #expect(terra == (90.0 * 2.5e-6) + (10.0 * 2.5e-7) + (5.0 * 1.5e-5))
-        #expect(luna == (90.0 * 1e-6) + (10.0 * 1e-7) + (5.0 * 6e-6))
+        #expect(terra == (90.0 * 2e-6) + (10.0 * 2e-7) + (5.0 * 1.2e-5))
+        #expect(luna == (90.0 * 2e-7) + (10.0 * 2e-8) + (5.0 * 1.2e-6))
         // Unsuffixed gpt-5.6 alias routes to Sol.
         #expect(alias == sol)
     }
@@ -263,8 +263,8 @@ struct CostUsagePricingTests {
         // Long-context (>272K) rates apply to the entire request. Total input contains 10 cached,
         // 20 cache-write, and 271,971 ordinary input tokens.
         #expect(sol == (271_971.0 * 1e-5) + (10.0 * 1e-6) + (20.0 * 1.25e-5) + (10.0 * 4.5e-5))
-        #expect(terra == (271_971.0 * 5e-6) + (10.0 * 5e-7) + (20.0 * 6.25e-6) + (10.0 * 2.25e-5))
-        #expect(luna == (271_971.0 * 2e-6) + (10.0 * 2e-7) + (20.0 * 2.5e-6) + (10.0 * 9e-6))
+        #expect(terra == (271_971.0 * 4e-6) + (10.0 * 4e-7) + (20.0 * 5e-6) + (10.0 * 1.8e-5))
+        #expect(luna == (271_971.0 * 4e-7) + (10.0 * 4e-8) + (20.0 * 5e-7) + (10.0 * 1.8e-6))
     }
 
     @Test
