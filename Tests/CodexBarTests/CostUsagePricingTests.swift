@@ -143,6 +143,79 @@ struct CostUsagePricingTests {
     }
 
     @Test
+    func `codex cost preserves historical gpt56 terra and luna rates`() throws {
+        let root = try Self.cacheRoot()
+        let beforeCutover = Date(timeIntervalSince1970: 1_785_369_599)
+        let atCutover = Date(timeIntervalSince1970: 1_785_369_600)
+
+        let oldTerra = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.6-terra",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5,
+            pricingDate: beforeCutover,
+            modelsDevCacheRoot: root)
+        let newTerra = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.6-terra",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5,
+            pricingDate: atCutover,
+            modelsDevCacheRoot: root)
+        let oldLuna = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.6-luna",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5,
+            pricingDate: beforeCutover,
+            modelsDevCacheRoot: root)
+        let newLuna = CostUsagePricing.codexCostUSD(
+            model: "gpt-5.6-luna",
+            inputTokens: 100,
+            cachedInputTokens: 10,
+            outputTokens: 5,
+            pricingDate: atCutover,
+            modelsDevCacheRoot: root)
+
+        #expect(oldTerra == (90.0 * 2.5e-6) + (10.0 * 2.5e-7) + (5.0 * 1.5e-5))
+        #expect(newTerra == (90.0 * 2e-6) + (10.0 * 2e-7) + (5.0 * 1.2e-5))
+        #expect(oldLuna == (90.0 * 1e-6) + (10.0 * 1e-7) + (5.0 * 6e-6))
+        #expect(newLuna == (90.0 * 2e-7) + (10.0 * 2e-8) + (5.0 * 1.2e-6))
+    }
+
+    @Test
+    func `codex row pricing uses each row day`() throws {
+        let root = try Self.cacheRoot()
+        let rows = [
+            CostUsageScanner.CodexUsageRow(
+                day: "2026-07-29",
+                model: "gpt-5.6-terra",
+                turnID: nil,
+                eventIndex: nil,
+                input: 100,
+                cached: 10,
+                output: 5),
+            CostUsageScanner.CodexUsageRow(
+                day: "2026-07-30",
+                model: "gpt-5.6-terra",
+                turnID: nil,
+                eventIndex: nil,
+                input: 100,
+                cached: 10,
+                output: 5),
+        ]
+
+        let cost = CostUsageScanner.codexRowsCostUSD(
+            rows: rows,
+            modelsDevCatalog: nil,
+            modelsDevCacheRoot: root)
+
+        let expectedOld = (90.0 * 2.5e-6) + (10.0 * 2.5e-7) + (5.0 * 1.5e-5)
+        let expectedNew = (90.0 * 2e-6) + (10.0 * 2e-7) + (5.0 * 1.2e-5)
+        #expect(cost == expectedOld + expectedNew)
+    }
+
+    @Test
     func `codex models dev falls back from gpt56 alias to canonical sol pricing`() throws {
         let canonicalOnlyRoot = try Self.seedModelsDevCache("""
         {

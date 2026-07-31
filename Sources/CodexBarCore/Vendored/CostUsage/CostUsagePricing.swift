@@ -1,10 +1,30 @@
 import Foundation
 
+private struct PricingHistoryPeriod<Pricing: Sendable>: Sendable {
+    let before: Date
+    let models: [String: Pricing]
+}
+
+private func effectivePricing<Pricing: Sendable>(
+    for model: String,
+    on date: Date?,
+    history: [PricingHistoryPeriod<Pricing>],
+    current: Pricing? = nil) -> Pricing?
+{
+    guard let date, history.contains(where: { $0.models[model] != nil }) else { return nil }
+    for period in history where date < period.before {
+        if let pricing = period.models[model] {
+            return pricing
+        }
+    }
+    return current
+}
+
 enum CostUsagePricing {
     private static let codexPriorityInputTokenLimit = 272_000
     static let codexUnattributedModel = "unknown"
 
-    struct CodexPricing {
+    struct CodexPricing: Sendable {
         let inputCostPerToken: Double
         let outputCostPerToken: Double
         let cacheReadInputCostPerToken: Double?
@@ -56,7 +76,7 @@ enum CostUsagePricing {
         }
     }
 
-    struct ClaudePricing {
+    struct ClaudePricing: Sendable {
         let inputCostPerToken: Double
         let outputCostPerToken: Double
         let cacheCreationInputCostPerToken: Double
@@ -429,30 +449,6 @@ enum CostUsagePricing {
             cacheReadInputCostPerTokenAboveThreshold: 6e-7),
     ]
 
-    private static let claudeFullContextStandardPricingCutoff = Date(timeIntervalSince1970: 1_773_360_000)
-    private static let claudeHistoricalLongContext: [String: ClaudePricing] = [
-        "claude-opus-4-6": ClaudePricing(
-            inputCostPerToken: 5e-6,
-            outputCostPerToken: 2.5e-5,
-            cacheCreationInputCostPerToken: 6.25e-6,
-            cacheReadInputCostPerToken: 5e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 1e-5,
-            outputCostPerTokenAboveThreshold: 3.75e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 1.25e-5,
-            cacheReadInputCostPerTokenAboveThreshold: 1e-6),
-        "claude-sonnet-4-6": ClaudePricing(
-            inputCostPerToken: 3e-6,
-            outputCostPerToken: 1.5e-5,
-            cacheCreationInputCostPerToken: 3.75e-6,
-            cacheReadInputCostPerToken: 3e-7,
-            thresholdTokens: 200_000,
-            inputCostPerTokenAboveThreshold: 6e-6,
-            outputCostPerTokenAboveThreshold: 2.25e-5,
-            cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
-            cacheReadInputCostPerTokenAboveThreshold: 6e-7),
-    ]
-
     private static let codexModelsDevProviderID = "openai"
     private static let claudeModelsDevProviderID = "anthropic"
 
@@ -524,11 +520,24 @@ enum CostUsagePricing {
         cachedInputTokens: Int,
         outputTokens: Int,
         cacheWriteInputTokens: Int = 0,
+        pricingDate: Date? = nil,
         modelsDevCatalog: ModelsDevCatalog? = nil,
         modelsDevCacheRoot: URL? = nil) -> Double?
     {
         let key = self.normalizeCodexModel(model)
         guard key != self.codexUnattributedModel else { return nil }
+        if let historicalPricing = effectivePricing(
+            for: key,
+            on: pricingDate,
+            history: self.codexPricingHistory)
+        {
+            return self.codexCostUSD(
+                pricing: historicalPricing,
+                inputTokens: inputTokens,
+                cachedInputTokens: cachedInputTokens,
+                cacheWriteInputTokens: cacheWriteInputTokens,
+                outputTokens: outputTokens)
+        }
         let modelsDevLookup = self.modelsDevLookup(
             providerID: self.codexModelsDevProviderID,
             model: model,
@@ -712,14 +721,14 @@ enum CostUsagePricing {
             cacheCreation1h: cacheCreationInputTokens1h,
             output: outputTokens)
         let key = self.normalizeClaudeModel(model)
-        if let pricingDate,
-           let historicalPricing = self.claudeHistoricalLongContext[key],
-           let currentPricing = self.claude[key]
+        if let datedPricing = effectivePricing(
+            for: key,
+            on: pricingDate,
+            history: self.claudePricingHistory,
+            current: self.claude[key])
         {
             return self.claudeCostUSD(
-                pricing: pricingDate < self.claudeFullContextStandardPricingCutoff
-                    ? historicalPricing
-                    : currentPricing,
+                pricing: datedPricing,
                 tokens: tokens)
         }
         if let lookup = self.modelsDevLookup(
@@ -808,4 +817,66 @@ enum CostUsagePricing {
             modelID: model,
             cacheRoot: cacheRoot)
     }
+}
+
+extension CostUsagePricing {
+    private static let claudePricingHistory = [PricingHistoryPeriod(
+        before: Date(timeIntervalSince1970: 1_773_360_000),
+        models: [
+            "claude-opus-4-6": ClaudePricing(
+                inputCostPerToken: 5e-6,
+                outputCostPerToken: 2.5e-5,
+                cacheCreationInputCostPerToken: 6.25e-6,
+                cacheReadInputCostPerToken: 5e-7,
+                thresholdTokens: 200_000,
+                inputCostPerTokenAboveThreshold: 1e-5,
+                outputCostPerTokenAboveThreshold: 3.75e-5,
+                cacheCreationInputCostPerTokenAboveThreshold: 1.25e-5,
+                cacheReadInputCostPerTokenAboveThreshold: 1e-6),
+            "claude-sonnet-4-6": ClaudePricing(
+                inputCostPerToken: 3e-6,
+                outputCostPerToken: 1.5e-5,
+                cacheCreationInputCostPerToken: 3.75e-6,
+                cacheReadInputCostPerToken: 3e-7,
+                thresholdTokens: 200_000,
+                inputCostPerTokenAboveThreshold: 6e-6,
+                outputCostPerTokenAboveThreshold: 2.25e-5,
+                cacheCreationInputCostPerTokenAboveThreshold: 7.5e-6,
+                cacheReadInputCostPerTokenAboveThreshold: 6e-7),
+        ])]
+
+    private static let codexPricingHistory = [PricingHistoryPeriod(
+        before: Date(timeIntervalSince1970: 1_785_369_600),
+        models: [
+            "gpt-5.6-terra": CodexPricing(
+                inputCostPerToken: 2.5e-6,
+                outputCostPerToken: 1.5e-5,
+                cacheReadInputCostPerToken: 2.5e-7,
+                displayLabel: nil,
+                cacheWriteInputCostPerToken: 3.125e-6,
+                thresholdTokens: 272_000,
+                inputCostPerTokenAboveThreshold: 5e-6,
+                outputCostPerTokenAboveThreshold: 2.25e-5,
+                cacheReadInputCostPerTokenAboveThreshold: 5e-7,
+                cacheWriteInputCostPerTokenAboveThreshold: 6.25e-6,
+                priorityInputCostPerToken: 5e-6,
+                priorityOutputCostPerToken: 3e-5,
+                priorityCacheReadInputCostPerToken: 5e-7,
+                priorityCacheWriteInputCostPerToken: 6.25e-6),
+            "gpt-5.6-luna": CodexPricing(
+                inputCostPerToken: 1e-6,
+                outputCostPerToken: 6e-6,
+                cacheReadInputCostPerToken: 1e-7,
+                displayLabel: nil,
+                cacheWriteInputCostPerToken: 1.25e-6,
+                thresholdTokens: 272_000,
+                inputCostPerTokenAboveThreshold: 2e-6,
+                outputCostPerTokenAboveThreshold: 9e-6,
+                cacheReadInputCostPerTokenAboveThreshold: 2e-7,
+                cacheWriteInputCostPerTokenAboveThreshold: 2.5e-6,
+                priorityInputCostPerToken: 2e-6,
+                priorityOutputCostPerToken: 1.2e-5,
+                priorityCacheReadInputCostPerToken: 2e-7,
+                priorityCacheWriteInputCostPerToken: 2.5e-6),
+        ])]
 }

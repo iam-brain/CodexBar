@@ -139,6 +139,7 @@ extension CostUsageScanner {
                 inputTokens: row.input,
                 cachedInputTokens: row.cached,
                 outputTokens: row.output,
+                pricingDate: CostUsageDateParser.parse(row.day),
                 modelsDevCatalog: modelsDevCatalog,
                 modelsDevCacheRoot: modelsDevCacheRoot)
             else { continue }
@@ -164,6 +165,7 @@ extension CostUsageScanner {
                 inputTokens: row.input,
                 cachedInputTokens: row.cached,
                 outputTokens: row.output,
+                pricingDate: CostUsageDateParser.parse(row.day),
                 modelsDevCatalog: modelsDevCatalog,
                 modelsDevCacheRoot: modelsDevCacheRoot),
                 let priorityCost = CostUsagePricing.codexPriorityCostUSD(
@@ -250,6 +252,7 @@ extension CostUsageScanner {
                 inputTokens: row.input,
                 cachedInputTokens: row.cached,
                 outputTokens: row.output,
+                pricingDate: CostUsageDateParser.parse(row.day),
                 modelsDevCatalog: modelsDevCatalog,
                 modelsDevCacheRoot: modelsDevCacheRoot)
             if isPriority, let priorityCost = CostUsagePricing.codexPriorityCostUSD(
@@ -461,6 +464,7 @@ extension CostUsageScanner {
                 inputTokens: row.input,
                 cachedInputTokens: row.cached,
                 outputTokens: row.output,
+                pricingDate: CostUsageDateParser.parse(row.day),
                 modelsDevCatalog: modelsDevCatalog,
                 modelsDevCacheRoot: modelsDevCacheRoot)
             let exactCost: Double? = if priorityMetadata != nil,
@@ -604,6 +608,7 @@ extension CostUsageScanner {
                 inputTokens: row.input,
                 cachedInputTokens: row.cached,
                 outputTokens: row.output,
+                pricingDate: CostUsageDateParser.parse(row.day),
                 modelsDevCatalog: modelsDevCatalog,
                 modelsDevCacheRoot: modelsDevCacheRoot)
 
@@ -1565,6 +1570,7 @@ extension CostUsageScanner {
                         inputTokens: input,
                         cachedInputTokens: cached,
                         outputTokens: output,
+                        pricingDate: CostUsageDateParser.parse(day),
                         modelsDevCatalog: catalogResolver.load(modelsDevCatalogLoader),
                         modelsDevCacheRoot: modelsDevCacheRoot)
                 if splitTotalCost == nil,
