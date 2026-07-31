@@ -216,6 +216,18 @@ struct CostUsagePricingTests {
     }
 
     @Test
+    func `pricing day parsing uses UTC regardless of local time zone`() throws {
+        let utc = try #require(TimeZone(secondsFromGMT: 0))
+        let tokyo = try #require(TimeZone(identifier: "Asia/Tokyo"))
+
+        let utcDate = try #require(CostUsageDateParser.parseDay("2026-07-30", timeZone: utc))
+        let tokyoDate = try #require(CostUsageDateParser.parseDay("2026-07-30", timeZone: tokyo))
+
+        #expect(utcDate == Date(timeIntervalSince1970: 1_785_369_600))
+        #expect(tokyoDate < utcDate)
+    }
+
+    @Test
     func `codex models dev falls back from gpt56 alias to canonical sol pricing`() throws {
         let canonicalOnlyRoot = try Self.seedModelsDevCache("""
         {

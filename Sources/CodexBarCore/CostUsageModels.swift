@@ -992,7 +992,7 @@ enum CostUsageDateParser {
         {
             return d
         }
-        if let d = self.dateFormatter(key: self.dayFormatterKey, format: "yyyy-MM-dd").date(from: trimmed) {
+        if let d = self.parseDay(trimmed, timeZone: .current) {
             return d
         }
         if let d = self.dateFormatter(key: self.monthDayYearFormatterKey, format: "MMM d, yyyy")
@@ -1002,6 +1002,15 @@ enum CostUsageDateParser {
         }
 
         return nil
+    }
+
+    static func parseDay(_ text: String?, timeZone: TimeZone) -> Date? {
+        guard let text, !text.isEmpty else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return self.dateFormatter(
+            key: self.dayFormatterKey,
+            format: "yyyy-MM-dd",
+            timeZone: timeZone).date(from: trimmed)
     }
 
     static func parseMonth(_ text: String?) -> Date? {
@@ -1035,9 +1044,12 @@ enum CostUsageDateParser {
         return formatter
     }
 
-    private static func dateFormatter(key: String, format: String) -> DateFormatter {
+    private static func dateFormatter(
+        key: String,
+        format: String,
+        timeZone: TimeZone = .current) -> DateFormatter
+    {
         let threadDict = Thread.current.threadDictionary
-        let timeZone = TimeZone.current
         let cacheKey = "\(key).\(timeZone.identifier)"
         if let cached = threadDict[cacheKey] as? DateFormatter {
             return cached
