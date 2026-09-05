@@ -3,7 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to validate"
+        required: true
+        type: number
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -26,6 +33,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
 
       - name: Detect macOS test impact
         id: macos-tests
@@ -33,7 +41,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            base_sha="$(git rev-parse HEAD^1)"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
             base_sha="${{ github.event.pull_request.base.sha }}"
           else
             base_sha="${{ github.event.before }}"
@@ -46,7 +56,7 @@ jobs:
             echo "Base commit ${base_sha} is unavailable; running macOS tests conservatively."
             git ls-files | awk '{ print "A\t" $0 }' > "$changed_paths"
           else
-            git diff --name-status "$base_sha" "$GITHUB_SHA" > "$changed_paths"
+            git diff --name-status "$base_sha" HEAD > "$changed_paths"
           fi
 
           printf 'Changed paths:\n'
@@ -78,6 +88,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
 
       - name: Install lint tools
         run: ./Scripts/install_lint_tools.sh swiftlint
@@ -99,6 +111,8 @@ jobs:
         shard-count: [2]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
 
       - name: Select Xcode 26.3 or 26.2
         run: |
@@ -166,6 +180,8 @@ jobs:
     if: ${{ always() && !cancelled() }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
 
       - name: Verify lint and macOS test jobs
         run: |
@@ -212,6 +228,8 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
 
       - name: Runner info
         run: |
