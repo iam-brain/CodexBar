@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [ready_for_review]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -19,7 +19,17 @@ env:
   SWIFTLY_SIGNING_FINGERPRINT: E813C892820A6FA13755B268F167DF1ACF9CE069
 
 jobs:
+  ignored-label:
+    if: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' }}
+    name: Ignore PR label ${{ github.event.label.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: echo "CI runs only when a maintainer applies the ci:run label."
+
   changes:
+    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'ci:run' }}
+    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Ignored label / changes' || 'changes' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -79,6 +89,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   lint:
+    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'ci:run' }}
+    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Ignored label / lint' || 'lint' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -94,7 +106,8 @@ jobs:
 
   swift-test-macos:
     needs: changes
-    if: ${{ needs.changes.outputs.macos-tests == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.label.name == 'ci:run') && needs.changes.outputs.macos-tests == 'true' }}
+    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Ignored label / swift-test-macos' || 'swift-test-macos' }}
     runs-on: macos-15-intel
     timeout-minutes: 60
     strategy:
@@ -166,13 +179,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   lint-build-test:
+    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Ignored label / lint-build-test' || 'lint-build-test' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     needs:
       - changes
       - lint
       - swift-test-macos
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || github.event.label.name == 'ci:run') }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -211,6 +225,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-linux-cli:
+    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'ci:run' }}
+    name: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' && 'Ignored label / build-linux-cli' || 'build-linux-cli' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
