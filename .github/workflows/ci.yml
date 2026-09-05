@@ -5,12 +5,9 @@ on:
     branches: [main]
   pull_request:
     types: [labeled]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "Pull request number to validate"
-        required: true
-        type: number
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -30,10 +27,16 @@ jobs:
       macos-tests-reason: ${{ steps.macos-tests.outputs.macos-tests-reason }}
       changed-path-count: ${{ steps.macos-tests.outputs.changed-path-count }}
     steps:
+      - name: Verify CI request
+        if: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' }}
+        run: |
+          echo "Apply the ci:run label to request PR validation." >&2
+          exit 1
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
+          persist-credentials: false
 
       - name: Detect macOS test impact
         id: macos-tests
@@ -41,9 +44,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            base_sha="$(git rev-parse HEAD^1)"
-          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             base_sha="${{ github.event.pull_request.base.sha }}"
           else
             base_sha="${{ github.event.before }}"
@@ -84,12 +85,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   lint:
+    needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
+          persist-credentials: false
 
       - name: Install lint tools
         run: ./Scripts/install_lint_tools.sh swiftlint
@@ -112,7 +114,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
+          persist-credentials: false
 
       - name: Select Xcode 26.3 or 26.2
         run: |
@@ -181,7 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
+          persist-credentials: false
 
       - name: Verify lint and macOS test jobs
         run: |
@@ -216,6 +218,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-linux-cli:
+    needs: changes
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -229,7 +232,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
+          persist-credentials: false
 
       - name: Runner info
         run: |
