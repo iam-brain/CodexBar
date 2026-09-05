@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [labeled]
+    types: [ready_for_review]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && github.event.label.name || github.event_name }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -27,12 +27,6 @@ jobs:
       macos-tests-reason: ${{ steps.macos-tests.outputs.macos-tests-reason }}
       changed-path-count: ${{ steps.macos-tests.outputs.changed-path-count }}
     steps:
-      - name: Verify CI request
-        if: ${{ github.event_name == 'pull_request' && github.event.label.name != 'ci:run' }}
-        run: |
-          echo "Apply the ci:run label to request PR validation." >&2
-          exit 1
-
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
@@ -85,7 +79,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   lint:
-    needs: changes
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -218,7 +211,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-linux-cli:
-    needs: changes
     timeout-minutes: 20
     strategy:
       fail-fast: false
